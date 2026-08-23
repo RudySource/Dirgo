@@ -25,7 +25,7 @@ set env(DGO_TUI_FULLSCREEN) 1
 spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query no-such-directory}
 
 expect {
-    -exact "No directories match" {}
+    -exact "Finding directories" {}
     eof {
         set result [wait]
         file delete -force $sandbox

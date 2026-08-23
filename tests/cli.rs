@@ -68,6 +68,25 @@ fn refresh_then_exact_query_returns_only_the_path() {
 }
 
 #[test]
+fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let state_file = temp.path().join("not-a-directory");
+    fs::write(&state_file, "blocked").expect("blocked state path");
+    let mut command = Command::cargo_bin("dgo").expect("binary");
+    command
+        .env("XDG_CONFIG_HOME", &state_file)
+        .env("XDG_CACHE_HOME", &state_file)
+        .env("XDG_STATE_HOME", &state_file)
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support")
+                .and(predicate::str::contains("_dgo_bookmarks")),
+        );
+}
+
+#[test]
 fn local_query_crawls_directories_created_after_global_refresh() {
     let fixture = Fixture::new();
     fixture.command().arg("refresh").assert().success();
@@ -99,6 +118,132 @@ fn ambiguous_query_is_nonzero_and_lists_candidates_on_stderr() {
 }
 
 #[test]
+fn ambiguous_json_exposes_explainable_score_components() {
+    let fixture = Fixture::new();
+    fixture.command().arg("refresh").assert().success();
+    let assert = fixture
+        .command()
+        .args(["query", "api", "--json"])
+        .assert()
+        .code(4);
+    let response: serde_json::Value =
+        serde_json::from_slice(&assert.get_output().stdout).expect("valid JSON response");
+    let candidates = response["candidates"].as_array().expect("candidate array");
+
+    assert_eq!(candidates.len(), 2);
+    for candidate in candidates {
+        let breakdown = &candidate["score_breakdown"];
+        assert_eq!(candidate["score"], breakdown["total"]);
+        assert!(breakdown["exact"].as_f64().expect("exact component") > 0.0);
+        assert!(breakdown["proximity"].is_number());
+        assert!(breakdown["recency"].is_number());
+    }
+}
+
+#[test]
+fn explain_forces_candidates_and_never_navigates() {
+    let fixture = Fixture::new();
+    fixture.command().arg("refresh").assert().success();
+    let assert = fixture
+        .command()
+        .args(["explain", "punk"])
+        .assert()
+        .success();
+    let response: serde_json::Value =
+        serde_json::from_slice(&assert.get_output().stdout).expect("valid explain JSON");
+    assert_eq!(response["resolved"], false);
+    assert_eq!(response["candidates"].as_array().map(Vec::len), Some(1));
+    assert_eq!(response["candidates"][0]["basename"], "Punk");
+    assert!(
+        response["candidates"][0]["score_breakdown"]["exact"]
+            .as_f64()
+            .is_some_and(|score| score > 0.0)
+    );
+}
+
+#[test]
+fn doctor_reports_operational_checks_without_building_an_index() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .env("SHELL", "/bin/zsh")
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("config         valid")
+                .and(predicate::str::contains("storage        cache="))
+                .and(predicate::str::contains("index          missing"))
+                .and(predicate::str::contains("state          healthy"))
+                .and(predicate::str::contains("actions        open="))
+                .and(predicate::str::contains("shell startup")),
+        );
+    assert!(!fixture.temp.path().join("cache/dirgo/index.redb").exists());
+}
+
+#[test]
+fn local_bench_reports_measurements_without_recording_navigation() {
+    let fixture = Fixture::new();
+    fixture.command().arg("refresh").assert().success();
+    fixture
+        .command()
+        .args(["bench", "--query", "punk", "--samples", "3"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Dataset directories")
+                .and(predicate::str::contains("Samples              3"))
+                .and(predicate::str::contains("Fallback candidate build"))
+                .and(predicate::str::contains("Fuzzy resolution")),
+        );
+    fixture
+        .command()
+        .arg("stats")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dirgo navigations     0"));
+}
+
+#[test]
+fn repeated_visits_enable_only_a_high_margin_ranked_prefix() {
+    let fixture = Fixture::new();
+    let root = fixture.temp.path().join("filesystem");
+    fs::create_dir(root.join("frontend")).expect("frontend");
+    fs::create_dir(root.join("frontier")).expect("frontier");
+    fixture.command().arg("refresh").assert().success();
+
+    for _ in 0..8 {
+        fixture
+            .command()
+            .args(["__resolve", "--cwd"])
+            .arg(&root)
+            .args(["--", "frontend"])
+            .assert()
+            .success();
+    }
+
+    let assert = fixture
+        .command()
+        .args(["query", "fro", "--json"])
+        .assert()
+        .success();
+    let response: serde_json::Value =
+        serde_json::from_slice(&assert.get_output().stdout).expect("valid JSON response");
+    assert_eq!(response["resolved"], true);
+    assert_eq!(response["source"], "ranked_prefix");
+    assert!(
+        response["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("/frontend"))
+    );
+    assert!(
+        response["confidence"]
+            .as_f64()
+            .is_some_and(|confidence| confidence >= 0.86)
+    );
+}
+
+#[test]
 fn bookmark_is_persistent_without_an_existing_index() {
     let fixture = Fixture::new();
     let target = fixture.temp.path().join("filesystem/Projects/Punk");
@@ -121,6 +266,158 @@ fn bookmark_is_persistent_without_an_existing_index() {
         .success()
         .stdout(predicate::str::ends_with("/Projects/Punk\n"));
     assert!(!fixture.temp.path().join("cache/dirgo/index.redb").exists());
+}
+
+#[test]
+fn stale_bookmark_reports_and_supports_in_place_repair() {
+    let fixture = Fixture::new();
+    let stale = fixture.temp.path().join("filesystem/stale-bookmark");
+    let repaired = fixture.temp.path().join("filesystem/repaired-bookmark");
+    fs::create_dir(&stale).expect("stale directory");
+    fs::create_dir(&repaired).expect("repair directory");
+    fixture
+        .command()
+        .args(["bookmark", "add", "work", "--path"])
+        .arg(&stale)
+        .assert()
+        .success();
+    fs::remove_dir(&stale).expect("remove stale directory");
+
+    fixture
+        .command()
+        .args(["query", "@work"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("missing directory")
+                .and(predicate::str::contains("dgo bookmark add work --path"))
+                .and(predicate::str::contains("dgo bookmark remove work")),
+        );
+
+    fixture
+        .command()
+        .args(["bookmark", "add", "work", "--path"])
+        .arg(&repaired)
+        .assert()
+        .success();
+    fixture
+        .command()
+        .args(["query", "@work"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("/repaired-bookmark\n"));
+}
+
+#[test]
+fn zoxide_import_is_explicit_safe_and_idempotent() {
+    let fixture = Fixture::new();
+    let imported = fixture.temp.path().join("filesystem/imported space");
+    let stale = fixture.temp.path().join("filesystem/missing-zoxide-entry");
+    let bin = fixture.temp.path().join("bin");
+    let zoxide = bin.join("zoxide");
+    let captured_args = fixture.temp.path().join("zoxide-args");
+    fs::create_dir(&imported).expect("imported directory");
+    fs::create_dir(&bin).expect("mock bin");
+    fs::write(
+        &zoxide,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"$*\" > \"$DGO_ZOXIDE_ARGS\"\nprintf '7.2 %s\\n3.0 %s\\n' {} {}\n",
+            shell_escape::unix::escape(imported.to_string_lossy()),
+            shell_escape::unix::escape(stale.to_string_lossy()),
+        ),
+    )
+    .expect("mock zoxide");
+    fs::set_permissions(&zoxide, fs::Permissions::from_mode(0o755)).expect("mock permissions");
+    let path = format!("{}:{}", bin.display(), env::var("PATH").unwrap_or_default());
+
+    fixture
+        .command()
+        .env("PATH", &path)
+        .env("DGO_ZOXIDE_ARGS", &captured_args)
+        .args(["import", "zoxide"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Imported 1 zoxide entries (0 unchanged, 1 stale skipped).",
+        ));
+    assert_eq!(
+        fs::read_to_string(&captured_args).expect("captured arguments"),
+        "query --list --score"
+    );
+    fixture
+        .command()
+        .env("PATH", &path)
+        .env("DGO_ZOXIDE_ARGS", &captured_args)
+        .args(["import", "zoxide"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Imported 0 zoxide entries (1 unchanged, 1 stale skipped).",
+        ));
+    fixture
+        .command()
+        .arg("stats")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dirgo navigations     8"));
+}
+
+#[test]
+fn corrupt_index_is_quarantined_and_rebuilt_without_touching_state() {
+    let fixture = Fixture::new();
+    fixture.command().arg("refresh").assert().success();
+    let index = fixture.temp.path().join("cache/dirgo/index.redb");
+    fs::write(&index, "not a redb file").expect("corrupt index fixture");
+
+    fixture
+        .command()
+        .args(["query", "punk"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("/Projects/Punk\n"))
+        .stderr(predicate::str::contains("quarantined a corrupt index"));
+    assert!(fixture.temp.path().join("cache/dirgo/index.redb").is_file());
+    assert!(
+        fs::read_dir(fixture.temp.path().join("cache/dirgo"))
+            .expect("cache entries")
+            .flatten()
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .contains("index.redb.corrupt."))
+    );
+}
+
+#[test]
+fn corrupt_state_is_backed_up_and_recreated_empty() {
+    let fixture = Fixture::new();
+    let target = fixture.temp.path().join("filesystem/Projects/Punk");
+    fixture
+        .command()
+        .args(["bookmark", "add", "work", "--path"])
+        .arg(&target)
+        .assert()
+        .success();
+    let state = fixture.temp.path().join("state/dirgo/state.redb");
+    fs::write(&state, "not a redb file").expect("corrupt state fixture");
+
+    fixture
+        .command()
+        .arg("bookmarks")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No bookmarks yet"))
+        .stderr(predicate::str::contains("backed up corrupt state"));
+    assert!(fixture.temp.path().join("state/dirgo/state.redb").is_file());
+    assert!(
+        fs::read_dir(fixture.temp.path().join("state/dirgo"))
+            .expect("state entries")
+            .flatten()
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .contains("state.redb.corrupt."))
+    );
 }
 
 #[test]
@@ -176,7 +473,7 @@ fn shell_init_contains_fast_path_and_no_path_eval() {
         .stdout(
             predicate::str::contains("builtin cd")
                 .and(predicate::str::contains("command dgo __resolve"))
-                .and(predicate::str::contains("bookmark|doctor"))
+                .and(predicate::str::contains("bookmark|import|doctor"))
                 .and(predicate::str::contains(
                     "--open|--finder|--code|--copy|--print",
                 ))
@@ -208,7 +505,7 @@ fn installed_zsh_wrapper_changes_directory_and_keeps_fast_path_working() {
         .args([
             "-f",
             "-c",
-            "eval \"$(command dgo init zsh)\"; builtin cd \"$DGO_TEST_ROOT\"; dgo Punk; dgo ..; print -r -- \"$PWD\"",
+            "eval \"$(command dgo init zsh)\"; builtin cd \"$DGO_TEST_ROOT\"; dgo Punk; dgo back; print -r -- \"$PWD\"; dgo forward; print -r -- \"$PWD\"; dgo ..; print -r -- \"$PWD\"",
         ])
         .env("PATH", path)
         .env("DGO_TEST_ROOT", fixture.temp.path().join("filesystem"))
@@ -222,16 +519,21 @@ fn installed_zsh_wrapper_changes_directory_and_keeps_fast_path_working() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let expected = fixture
+    let root = fixture
         .temp
         .path()
-        .join("filesystem/Projects")
+        .join("filesystem")
         .canonicalize()
-        .expect("canonical expected path");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        expected.display().to_string()
-    );
+        .expect("canonical root");
+    let punk = root.join("Projects/Punk");
+    let projects = root.join("Projects");
+    let actual = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(Path::new)
+        .map(fs::canonicalize)
+        .collect::<std::io::Result<Vec<_>>>()
+        .expect("canonical output paths");
+    assert_eq!(actual, vec![root, punk, projects]);
 }
 
 #[test]

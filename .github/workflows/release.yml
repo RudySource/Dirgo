@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.89"
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Verify tag matches Cargo version
+        shell: bash
+        run: |
+          crate_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          test "$GITHUB_REF_NAME" = "v$crate_version"
+
+      - run: cargo test --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} --bin dgo
+
+      - name: Package Unix archive
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          package="dirgo-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "stage/$package" dist
+          cp "target/${{ matrix.target }}/release/dgo" README.md CHANGELOG.md DIFFERENTIAL_REVIEW_REPORT.md LICENSE-APACHE LICENSE-MIT SECURITY.md SUPPORT.md "stage/$package/"
+          cp -R docs "stage/$package/"
+          "stage/$package/dgo" --version
+          tar -C stage -czf "dist/$package.tar.gz" "$package"
+
+      - name: Package Windows archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $package = "dirgo-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force "stage/$package", dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/dgo.exe", README.md, CHANGELOG.md, DIFFERENTIAL_REVIEW_REPORT.md, LICENSE-APACHE, LICENSE-MIT, SECURITY.md, SUPPORT.md "stage/$package/"
+          Copy-Item docs "stage/$package/" -Recurse
+          & "stage/$package/dgo.exe" --version
+          Compress-Archive -Path "stage/$package" -DestinationPath "dist/$package.zip"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dirgo-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum dirgo-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Publish immutable tag assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file docs/releases/v0.1.0.md --title "Dirgo $GITHUB_REF_NAME"

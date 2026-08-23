@@ -1,0 +1,182 @@
+#!/usr/bin/expect -f
+
+# Exercises generated wrappers inside real PTYs. Fish is optional locally, but
+# mandatory on a compatibility-matrix host.
+set timeout 12
+encoding system utf-8
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-shell-matrix-[pid]-[clock seconds]"
+set sandbox [file normalize $sandbox]
+set fixture_root "$sandbox/filesystem"
+file mkdir "$fixture_root/Projects/Punk/src"
+file mkdir "$fixture_root/Projects/quo'te space/子"
+file mkdir "$fixture_root/First/api"
+file mkdir "$fixture_root/Second/api"
+file mkdir "$fixture_root/-dash"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$fixture_root\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(DGO_TEST_ROOT) "$fixture_root"
+set env(TERM) "xterm-256color"
+set env(LANG) "C.UTF-8"
+set env(LC_ALL) "C.UTF-8"
+set env(PATH) "[file dirname $env(DGO_BIN)]:$env(PATH)"
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+set refresh_result [wait]
+if {[lindex $refresh_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $refresh_result 3]
+}
+
+set posix_program {
+eval "$("$DGO_BIN" init "$DGO_SHELL_NAME")"
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:quoted\n' "$DGO_SHELL_NAME"
+[ -d "Projects/quo'te space/子" ] || { printf 'SHELL-MATRIX:%s:error:quoted-path-missing:%s\n' "$DGO_SHELL_NAME" "$PWD"; exit 90; }
+dgo "Projects/quo'te space/子"
+[ "$PWD" = "$DGO_TEST_ROOT/Projects/quo'te space/子" ] || exit 91
+dgo ..
+[ "$PWD" = "$DGO_TEST_ROOT/Projects/quo'te space" ] || exit 92
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:dash\n' "$DGO_SHELL_NAME"
+dgo ./-dash
+[ "$PWD" = "$DGO_TEST_ROOT/-dash" ] || exit 93
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:bookmark\n' "$DGO_SHELL_NAME"
+dgo bookmark add work --path "$DGO_TEST_ROOT/Projects/Punk" >/dev/null
+dgo @work
+[ "$PWD" = "$DGO_TEST_ROOT/Projects/Punk" ] || exit 94
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:history\n' "$DGO_SHELL_NAME"
+dgo Punk
+dgo back
+[ "$PWD" = "$DGO_TEST_ROOT" ] || exit 95
+dgo forward
+[ "$PWD" = "$DGO_TEST_ROOT/Projects/Punk" ] || exit 96
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:picker\n' "$DGO_SHELL_NAME"
+dgo '?' api
+case "$PWD" in
+  "$DGO_TEST_ROOT/First/api"|"$DGO_TEST_ROOT/Second/api") ;;
+  *) exit 97 ;;
+esac
+printf 'SHELL-MATRIX:%s:ok\n' "$DGO_SHELL_NAME"
+}
+
+set fish_program {
+"$DGO_BIN" init fish | source
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:quoted\n' "$DGO_SHELL_NAME"
+test -d "Projects/quo'te space/子"; or begin; printf 'SHELL-MATRIX:%s:error:quoted-path-missing:%s\n' "$DGO_SHELL_NAME" "$PWD"; exit 90; end
+dgo "Projects/quo'te space/子"
+test "$PWD" = "$DGO_TEST_ROOT/Projects/quo'te space/子"; or exit 91
+dgo ..
+test "$PWD" = "$DGO_TEST_ROOT/Projects/quo'te space"; or exit 92
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:dash\n' "$DGO_SHELL_NAME"
+dgo ./-dash
+test "$PWD" = "$DGO_TEST_ROOT/-dash"; or exit 93
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:bookmark\n' "$DGO_SHELL_NAME"
+dgo bookmark add work --path "$DGO_TEST_ROOT/Projects/Punk" >/dev/null
+dgo @work
+test "$PWD" = "$DGO_TEST_ROOT/Projects/Punk"; or exit 94
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:history\n' "$DGO_SHELL_NAME"
+dgo Punk
+dgo back
+test "$PWD" = "$DGO_TEST_ROOT"; or exit 95
+dgo forward
+test "$PWD" = "$DGO_TEST_ROOT/Projects/Punk"; or exit 96
+cd "$DGO_TEST_ROOT"
+printf 'SHELL-MATRIX:%s:step:picker\n' "$DGO_SHELL_NAME"
+dgo '?' api
+switch "$PWD"
+    case "$DGO_TEST_ROOT/First/api" "$DGO_TEST_ROOT/Second/api"
+    case '*'
+        exit 97
+end
+printf 'SHELL-MATRIX:%s:ok\n' "$DGO_SHELL_NAME"
+}
+
+proc run_posix_shell {name executable program} {
+    global env
+    set env(DGO_SHELL_NAME) $name
+    spawn -noecho {*}$executable -c $program
+    expect {
+        -exact "SHELL-MATRIX:$name:step:picker" {
+            after 500
+            send -- "\r"
+            exp_continue
+        }
+        -exact "SHELL-MATRIX:$name:ok" {}
+        timeout {
+            puts stderr "$name shell matrix timed out"
+            return 1
+        }
+        eof {
+            puts stderr "$name shell matrix ended before success marker"
+            return 1
+        }
+    }
+    expect eof
+    set result [wait]
+    return [expr {[lindex $result 3] == 0 ? 0 : 1}]
+}
+
+set failed 0
+if {[run_posix_shell zsh [list /bin/zsh -f] $posix_program] != 0} {
+    set failed 1
+}
+if {[run_posix_shell bash [list /bin/bash --noprofile --norc] $posix_program] != 0} {
+    set failed 1
+}
+
+set fish [auto_execok fish]
+if {$fish eq ""} {
+    puts "SHELL-MATRIX:fish:skipped (fish is not installed)"
+} else {
+    set env(DGO_SHELL_NAME) fish
+    spawn -noecho $fish --no-config -c $fish_program
+    set fish_ended_early 0
+    expect {
+        -exact "SHELL-MATRIX:fish:step:picker" {
+            after 500
+            send -- "\r"
+            exp_continue
+        }
+        -exact "SHELL-MATRIX:fish:ok" {}
+        timeout {
+            puts stderr "fish shell matrix timed out"
+            set failed 1
+        }
+        eof {
+            puts stderr "fish shell matrix ended before success marker"
+            set failed 1
+            set fish_ended_early 1
+        }
+    }
+    if {!$fish_ended_early} {
+        expect eof
+    }
+    set result [wait]
+    if {[lindex $result 3] != 0} {
+        set failed 1
+    }
+}
+
+file delete -force $sandbox
+exit $failed

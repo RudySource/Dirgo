@@ -72,7 +72,7 @@ fn copy_path(path: &Path) -> Result<()> {
         .stdin
         .take()
         .ok_or_else(|| DirgoError::User("Dirgo could not open the clipboard input".into()))?
-        .write_all(path.as_os_str().as_encoded_bytes())
+        .write_all(path_for_clipboard(path).as_ref())
         .map_err(|error| DirgoError::io("clipboard", error))?;
     let status = child
         .wait()
@@ -96,7 +96,9 @@ struct CommandSpec {
 fn open_command() -> Option<CommandSpec> {
     #[cfg(target_os = "macos")]
     let candidates: [(&str, &[&str]); 1] = [("open", &[])];
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let candidates: [(&str, &[&str]); 1] = [("explorer.exe", &[])];
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let candidates: [(&str, &[&str]); 1] = [("xdg-open", &[])];
     candidates
         .into_iter()
@@ -110,7 +112,17 @@ fn open_command() -> Option<CommandSpec> {
 fn copy_command() -> Option<CommandSpec> {
     #[cfg(target_os = "macos")]
     let candidates: [(&str, &[&str]); 1] = [("pbcopy", &[])];
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let candidates: [(&str, &[&str]); 1] = [(
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::InputEncoding=[System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+        ],
+    )];
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let candidates: [(&str, &[&str]); 2] =
         [("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])];
     candidates
@@ -120,6 +132,16 @@ fn copy_command() -> Option<CommandSpec> {
             program: program.into(),
             args: args.iter().map(OsString::from).collect(),
         })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn path_for_clipboard(path: &Path) -> std::borrow::Cow<'_, [u8]> {
+    std::borrow::Cow::Borrowed(path.as_os_str().as_encoded_bytes())
+}
+
+#[cfg(target_os = "windows")]
+fn path_for_clipboard(path: &Path) -> std::borrow::Cow<'_, [u8]> {
+    std::borrow::Cow::Owned(path.to_string_lossy().as_bytes().to_vec())
 }
 
 fn editor_command(config: &ActionConfig) -> Result<CommandSpec> {
@@ -205,8 +227,14 @@ fn open_install_hint() -> &'static str {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "windows"))]
 fn open_install_hint() -> &'static str {
     "install xdg-utils"
+}
+
+#[cfg(target_os = "windows")]
+fn open_install_hint() -> &'static str {
+    "the Windows `explorer.exe` utility is missing"
 }
 
 #[cfg(target_os = "macos")]
@@ -215,8 +243,14 @@ fn copy_install_hint() -> &'static str {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "windows"))]
 fn copy_install_hint() -> &'static str {
     "install wl-clipboard or xclip"
+}
+
+#[cfg(target_os = "windows")]
+fn copy_install_hint() -> &'static str {
+    "Windows PowerShell with Set-Clipboard is required"
 }
 
 #[cfg(test)]

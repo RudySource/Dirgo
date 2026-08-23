@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible Dirgo defect without exposing private paths or secrets.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include private directory names, shell history, tokens, or full configuration files.
+        For security-sensitive reports, follow SECURITY.md instead of opening an issue.
+  - type: input
+    id: version
+    attributes:
+      label: Dirgo version
+      placeholder: "dgo --version output"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use generic placeholder paths such as /tmp/project.
+      placeholder: |
+        1. Run ...
+        2. Type ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized output
+    validations:
+      required: true

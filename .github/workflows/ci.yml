@@ -2,23 +2,60 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  verify:
+    name: verify (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
+          toolchain: "1.89"
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install Linux PTY test dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y expect zsh fish
+
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
-      - run: cargo build --release
+      - run: cargo test
+      - run: cargo build --release --bin dgo
+      - run: cargo build --release --bin dgo-fixture --features benchmark-tools
+      - run: cargo bench --bench index_pipeline --no-run
+      - name: External benchmark smoke
+        env:
+          DGO_BIN: ${{ github.workspace }}/target/release/dgo
+          DGO_FIXTURE_BIN: ${{ github.workspace }}/target/release/dgo-fixture
+        run: scripts/benchmark-cli.sh --directories 100 --samples 1
+      - name: Linux PTY terminal and shell gates
+        if: runner.os == 'Linux'
+        env:
+          DGO_BIN: ${{ github.workspace }}/target/release/dgo
+        run: |
+          expect scripts/pty-picker-smoke.exp
+          expect scripts/pty-terminal-gates.exp
+          expect scripts/pty-shell-matrix.exp
+
+  dependency-policy:
+    name: dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # main
+        with:
+          tool: cargo-deny
+          fallback: none
+      - run: cargo deny check

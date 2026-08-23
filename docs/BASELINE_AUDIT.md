@@ -11,7 +11,7 @@ Date: 2026-08-22
 ## Not found
 
 - No Zsh implementation, Rust source, tests, configuration, license, or release automation was present.
-- The directory was not a Git repository. It is now initialized on branch `main`, with no baseline commit; all implementation files remain uncommitted for owner review.
+- At audit time, the directory was not a Git repository and contained no implementation. It was subsequently initialized on `main`; commit `284a316` preserves that supplied-document baseline for differential review using canonical GitHub noreply author metadata.
 
 ## Migration decision
 

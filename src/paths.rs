@@ -1,4 +1,7 @@
-use std::{env, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{DirgoError, Result};
 
@@ -40,6 +43,23 @@ impl AppPaths {
     }
 }
 
+pub fn timestamped_recovery_path(path: &Path, label: &str, timestamp: u64) -> PathBuf {
+    let base = format!("{}.{}.{}", path.display(), label, timestamp);
+    let mut candidate = PathBuf::from(&base);
+    let mut suffix = 1_u32;
+    while candidate.exists() {
+        candidate = PathBuf::from(format!("{base}.{suffix}"));
+        suffix += 1;
+    }
+    candidate
+}
+
+pub fn preserve_for_recovery(path: &Path, label: &str, timestamp: u64) -> Result<PathBuf> {
+    let destination = timestamped_recovery_path(path, label, timestamp);
+    fs::rename(path, &destination).map_err(|error| DirgoError::io(path, error))?;
+    Ok(destination)
+}
+
 fn env_path(name: &str) -> Option<PathBuf> {
     env::var_os(name)
         .filter(|value| !value.is_empty())
@@ -76,14 +96,46 @@ pub fn absolute_directory(input: &str, cwd: &std::path::Path) -> Result<Option<P
     let canonical = candidate
         .canonicalize()
         .map_err(|error| DirgoError::io(&candidate, error))?;
-    reject_newline(&canonical)?;
+    validate_shell_path(&canonical)?;
     Ok(Some(canonical))
 }
 
-pub fn reject_newline(path: &std::path::Path) -> Result<()> {
-    if path.to_string_lossy().contains('\n') {
+pub fn validate_shell_path(path: &std::path::Path) -> Result<()> {
+    let path = path.to_str().ok_or(DirgoError::NonUtf8Path)?;
+    if path.contains('\n') {
         Err(DirgoError::NewlinePath)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_names_are_timestamped_and_collision_safe() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("state.redb");
+        std::fs::write(&path, "state").expect("state");
+        let first = preserve_for_recovery(&path, "corrupt", 42).expect("preserve");
+        assert!(first.ends_with("state.redb.corrupt.42"));
+        std::fs::write(&path, "state again").expect("state");
+        let second = preserve_for_recovery(&path, "corrupt", 42).expect("preserve");
+        assert!(second.ends_with("state.redb.corrupt.42.1"));
+        assert!(first.is_file());
+        assert!(second.is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_paths_at_the_shell_boundary() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let path = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
+        assert!(matches!(
+            validate_shell_path(&path),
+            Err(DirgoError::NonUtf8Path)
+        ));
     }
 }

@@ -22,6 +22,10 @@ pub enum DirgoError {
     Commit(#[from] redb::CommitError),
     #[error("Dirgo data is invalid: {0}")]
     Data(#[from] serde_json::Error),
+    #[error("Dirgo index data is invalid: {0}")]
+    IndexData(String),
+    #[error("Dirgo index schema {found} requires a rebuild to schema {expected}")]
+    IndexUpgradeRequired { found: u64, expected: u64 },
     #[error("another Dirgo index refresh is already running")]
     RefreshBusy,
     #[error("no directory matched {0:?}")]
@@ -34,6 +38,8 @@ pub enum DirgoError {
     InvalidBookmark(String),
     #[error("paths containing a newline cannot cross the shell integration boundary")]
     NewlinePath,
+    #[error("paths that are not valid UTF-8 cannot cross the shell integration boundary")]
+    NonUtf8Path,
     #[error("{0}")]
     User(String),
 }

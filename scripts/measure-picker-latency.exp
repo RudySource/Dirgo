@@ -1,0 +1,105 @@
+#!/usr/bin/expect -f
+
+set timeout 6
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+log_user 0
+
+set sandbox "/tmp/dirgo-latency-[pid]-[clock seconds]"
+set fixture_root "$sandbox/filesystem"
+file mkdir "$fixture_root/Archive/api"
+file mkdir "$fixture_root/Services/api"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$fixture_root\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(TERM) "xterm-256color"
+set env(DGO_TUI_FULLSCREEN) 1
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+set refresh_result [wait]
+if {[lindex $refresh_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $refresh_result 3]
+}
+
+set query_started [clock microseconds]
+spawn -noecho /bin/sh -c {exec "$DGO_BIN" query apx </dev/null}
+expect eof
+set warm_query_us [expr {[clock microseconds] - $query_started}]
+set warm_query_result [wait]
+if {[lindex $warm_query_result 3] != 3} {
+    file delete -force $sandbox
+    exit [lindex $warm_query_result 3]
+}
+
+set paint_samples {}
+set result_samples {}
+for {set sample 0} {$sample < 5} {incr sample} {
+    set paint_started [clock microseconds]
+    spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query apx}
+    expect {
+        -exact "Dirgo" {
+            lappend paint_samples [expr {[clock microseconds] - $paint_started}]
+        }
+        timeout {
+            puts stderr "first paint timed out"
+            file delete -force $sandbox
+            exit 3
+        }
+    }
+    after 20
+
+    set search_started [clock microseconds]
+    send -- "\177i"
+    expect {
+        -exact "api" {
+            lappend result_samples [expr {[clock microseconds] - $search_started}]
+        }
+        timeout {
+            puts stderr "first useful result timed out"
+            file delete -force $sandbox
+            exit 4
+        }
+    }
+    send -- "\003"
+    expect eof
+    set picker_result [wait]
+    if {[lindex $picker_result 3] != 4} {
+        file delete -force $sandbox
+        exit [lindex $picker_result 3]
+    }
+}
+file delete -force $sandbox
+
+set sorted_paints [lsort -integer $paint_samples]
+set sorted_results [lsort -integer $result_samples]
+set first_paint_ms [expr {[lindex $sorted_paints 2] / 1000.0}]
+set first_result_ms [expr {[lindex $sorted_results 2] / 1000.0}]
+set warm_query_ms [expr {$warm_query_us / 1000.0}]
+set paint_display {}
+set result_display {}
+foreach value $paint_samples {
+    lappend paint_display [format "%.3f" [expr {$value / 1000.0}]]
+}
+foreach value $result_samples {
+    lappend result_display [format "%.3f" [expr {$value / 1000.0}]]
+}
+puts [format "warm non-interactive no-match: %.3f ms" $warm_query_ms]
+puts [format "warm first paint median: %.3f ms (samples: %s)" $first_paint_ms [join $paint_display ", "]]
+puts [format "live first useful result median: %.3f ms (samples: %s)" $first_result_ms [join $result_display ", "]]
+if {$first_paint_ms >= 60.0 || $first_result_ms >= 50.0} {
+    puts stderr "local M1 latency target missed"
+    exit 5
+}
+exit 0

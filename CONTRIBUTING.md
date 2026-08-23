@@ -9,6 +9,8 @@ cargo build
 cargo test --all-features
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
+cargo bench --bench index_pipeline --no-run
+cargo deny check
 ```
 
 Test a shell integration without modifying shell startup files:
@@ -20,6 +22,8 @@ eval "$(dgo init zsh)"
 ```
 
 Use temporary XDG directories and a small configured root for filesystem tests. Never run performance fixtures against a user's real home directory.
+
+The CI benchmark smoke uses only a disposable 100-directory fixture. It validates the harness and release binary on macOS and Linux; it is not a latency target or published performance claim.
 
 ## Architecture
 

@@ -46,11 +46,45 @@ pub struct PathHistory {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ScoreBreakdown {
+    pub fuzzy: f64,
+    pub exact: f64,
+    pub prefix: f64,
+    pub path_segment: f64,
+    pub bookmark: f64,
+    pub frequency: f64,
+    pub recency: f64,
+    pub proximity: f64,
+    pub project: f64,
+    pub depth_penalty: f64,
+    pub total: f64,
+}
+
+impl ScoreBreakdown {
+    pub fn from_total(total: f64) -> Self {
+        Self {
+            fuzzy: 0.0,
+            exact: 0.0,
+            prefix: 0.0,
+            path_segment: 0.0,
+            bookmark: 0.0,
+            frequency: 0.0,
+            recency: 0.0,
+            proximity: 0.0,
+            project: 0.0,
+            depth_penalty: 0.0,
+            total,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Candidate {
     pub path: PathBuf,
     pub display_path: String,
     pub basename: String,
     pub score: f64,
+    pub score_breakdown: ScoreBreakdown,
     pub source: &'static str,
     pub is_project_root: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

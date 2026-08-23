@@ -2,16 +2,27 @@
 name = "dirgo"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "Instant directory navigation for your terminal"
 readme = "README.md"
+repository = "https://github.com/RudySource/Dirgo"
+homepage = "https://github.com/RudySource/Dirgo"
 license = "MIT OR Apache-2.0"
 keywords = ["cli", "terminal", "filesystem", "fuzzy-search", "navigation"]
 categories = ["command-line-utilities", "filesystem"]
 
+[features]
+default = []
+benchmark-tools = []
+
 [[bin]]
 name = "dgo"
 path = "src/main.rs"
+
+[[bin]]
+name = "dgo-fixture"
+path = "src/bin/dgo-fixture.rs"
+required-features = ["benchmark-tools"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -34,5 +45,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
+criterion = { version = "0.5.1", default-features = false }
 predicates = "3.1.4"
 tempfile = "3.27.0"
+
+[[bench]]
+name = "index_pipeline"
+harness = false

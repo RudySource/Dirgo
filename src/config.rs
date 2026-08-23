@@ -118,6 +118,24 @@ impl Config {
                 "ui.height_percent must be between 30 and 100".into(),
             ));
         }
+        if !matches!(self.ui.icons.as_str(), "auto" | "always" | "never") {
+            return Err(DirgoError::Config(
+                "ui.icons must be one of: auto, always, never".into(),
+            ));
+        }
+        for (name, weight) in [
+            ("frequency", self.ranking.frequency),
+            ("recency", self.ranking.recency),
+            ("proximity", self.ranking.proximity),
+            ("bookmarks", self.ranking.bookmarks),
+            ("projects", self.ranking.projects),
+        ] {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err(DirgoError::Config(format!(
+                    "ranking.{name} must be a finite non-negative number"
+                )));
+            }
+        }
         Ok(())
     }
 }
@@ -145,4 +163,30 @@ pub fn default_ignores() -> [&'static str; 20] {
         "build",
         "dist",
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_negative_or_non_finite_ranking_weights() {
+        let mut config = Config::default();
+        config.ranking.recency = -0.1;
+        assert!(config.validate().is_err());
+
+        config.ranking.recency = f64::NAN;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn permits_disabling_a_ranking_signal_with_zero() {
+        let mut config = Config::default();
+        config.ranking.frequency = 0.0;
+        config.ranking.recency = 0.0;
+        config.ranking.proximity = 0.0;
+        config.ranking.bookmarks = 0.0;
+        config.ranking.projects = 0.0;
+        config.validate().expect("zero weights are valid");
+    }
 }

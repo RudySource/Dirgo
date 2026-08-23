@@ -1,15 +1,22 @@
-# Support Dirgo
+# Dirgo support
 
-If Dirgo saves you time, you can support development.
+## Before opening an issue
 
-## GitHub Sponsors
+Run `dgo doctor` and include its output, `dgo --version`, your operating system,
+terminal, and shell. Remove or replace personal filesystem paths before posting
+logs or screenshots.
 
-Not configured yet.
+Search the [existing issues](https://github.com/RudySource/Dirgo/issues) before
+opening a new bug report or feature request. Use the repository issue forms so
+the reproduction and environment details are not omitted.
 
-## Crypto
+## Security reports
 
-TON: `<YOUR_TON_ADDRESS>`
+Do not publish a security-sensitive reproduction in an issue. Follow
+[SECURITY.md](SECURITY.md) instead.
 
-EVM: `<YOUR_EVM_ADDRESS>`
+## Scope
 
-These are explicit placeholders, not receiving addresses. Dirgo never displays donation prompts during navigation, indexing, or installation.
+Support covers the latest release and the current `main` branch. Dirgo does not
+currently offer paid support or accept donations, and it never displays donation
+prompts during navigation, indexing, or installation.

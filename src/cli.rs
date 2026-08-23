@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use crate::{actions::Action, shell::Shell};
 
@@ -68,6 +68,12 @@ pub struct Cli {
     )]
     pub print: bool,
 
+    #[arg(long, global = true, help = "Disable colored TUI output")]
+    pub no_color: bool,
+
+    #[arg(long, global = true, help = "Use ASCII-only TUI symbols")]
+    pub no_unicode: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 
@@ -101,6 +107,16 @@ pub enum Command {
     },
     Refresh,
     Query(QueryArgs),
+    Explain {
+        #[arg(value_name = "QUERY", required = true)]
+        query: Vec<String>,
+    },
+    Bench {
+        #[arg(long, default_value = "a")]
+        query: String,
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=20))]
+        samples: u8,
+    },
     Root,
     Repo {
         #[arg(value_name = "QUERY")]
@@ -112,6 +128,9 @@ pub enum Command {
     },
     Back,
     Forward,
+    Import {
+        source: ImportSource,
+    },
     Bookmarks,
     Bookmark {
         #[command(subcommand)]
@@ -164,4 +183,9 @@ pub enum BookmarkCommand {
 pub enum ConfigCommand {
     Path,
     Show,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ImportSource {
+    Zoxide,
 }

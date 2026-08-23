@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env, fs, io,
     path::PathBuf,
     sync::{
@@ -30,8 +31,12 @@ use ratatui::{
 
 use crate::{
     DirgoError, Result,
-    actions::{Action, Availability},
+    actions::{self, Action, Availability},
+    config::{ActionConfig, RankingConfig},
+    index::IndexStore,
     model::Candidate,
+    model::{PathHistory, unix_now},
+    search::{PickerCandidateStream, picker_candidate},
 };
 
 const RESULT_CACHE_LIMIT: u32 = 2_000;
@@ -51,15 +56,133 @@ pub struct Selection {
     pub action: Action,
 }
 
+pub struct IndexStreamSource {
+    pub index_path: PathBuf,
+    pub record_count: usize,
+    pub bookmarks: HashMap<PathBuf, String>,
+    pub history: HashMap<PathBuf, PathHistory>,
+    pub cwd: PathBuf,
+    pub ranking: RankingConfig,
+}
+
+pub enum PickOutcome {
+    Selected(Selection),
+    Refresh,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    pub color: bool,
+    pub unicode: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            color: env::var_os("NO_COLOR").is_none(),
+            unicode: true,
+        }
+    }
+}
+
 pub fn pick(
     candidates: Vec<Candidate>,
     query: &str,
     default_action: Action,
-    actions: Availability,
-) -> Result<Option<Selection>> {
+    action_config: &ActionConfig,
+    options: Options,
+) -> Result<PickOutcome> {
     if candidates.is_empty() {
-        return Ok(None);
+        return Ok(PickOutcome::Cancelled);
     }
+    pick_with_matcher(
+        LiveMatcher::new(candidates, query),
+        query,
+        default_action,
+        action_config,
+        options,
+    )
+}
+
+pub fn pick_stream(
+    candidates: PickerCandidateStream,
+    query: &str,
+    default_action: Action,
+    action_config: &ActionConfig,
+    options: Options,
+) -> Result<PickOutcome> {
+    if candidates.is_empty() {
+        return Ok(PickOutcome::Cancelled);
+    }
+    pick_with_matcher(
+        LiveMatcher::from_stream(candidates, query),
+        query,
+        default_action,
+        action_config,
+        options,
+    )
+}
+
+pub fn pick_index_stream(
+    source: IndexStreamSource,
+    query: &str,
+    default_action: Action,
+    action_config: &ActionConfig,
+    options: Options,
+) -> Result<PickOutcome> {
+    let IndexStreamSource {
+        index_path,
+        record_count,
+        bookmarks,
+        history,
+        cwd,
+        ranking,
+    } = source;
+    if record_count == 0 {
+        return Ok(PickOutcome::Cancelled);
+    }
+    let loader = move |injector: nucleo::Injector<Candidate>, cancelled: Arc<AtomicBool>| {
+        let store = match IndexStore::open(&index_path) {
+            Ok(store) => store,
+            Err(error) => {
+                tracing::error!(%error, "interactive index stream could not open index");
+                return;
+            }
+        };
+        let now = unix_now();
+        if let Err(error) = store.visit_records(|record| {
+            if cancelled.load(Ordering::Relaxed) {
+                return false;
+            }
+            let candidate = picker_candidate(record, &bookmarks, &history, &cwd, &ranking, now);
+            injector.push(candidate, |candidate, columns| {
+                columns[0] = Utf32String::from(candidate.basename.as_str());
+                columns[1] = Utf32String::from(fuzzy_path_text(&candidate.display_path));
+            });
+            !cancelled.load(Ordering::Relaxed)
+        }) {
+            tracing::error!(%error, "interactive index stream could not decode index");
+        }
+    };
+    pick_with_matcher(
+        LiveMatcher::from_loader(record_count, query, loader),
+        query,
+        default_action,
+        action_config,
+        options,
+    )
+}
+
+fn pick_with_matcher(
+    mut matcher: LiveMatcher,
+    query: &str,
+    default_action: Action,
+    action_config: &ActionConfig,
+    options: Options,
+) -> Result<PickOutcome> {
+    use std::io::IsTerminal;
+
     let (_, terminal_rows) =
         crossterm::terminal::size().map_err(|error| DirgoError::io("terminal", error))?;
     let height = ((u32::from(terminal_rows) * 70) / 100) as u16;
@@ -69,7 +192,15 @@ pub fn pick(
     let mut terminal_mode = TerminalModeGuard {
         alternate_screen: false,
     };
-    let force_fullscreen = env::var_os("DGO_TUI_FULLSCREEN").is_some();
+    // Ratatui's inline viewport asks Crossterm for the cursor position. On
+    // Unix, Crossterm writes that DSR request to stdout even when the backend
+    // itself renders to stderr. The shell wrapper reserves stdout exclusively
+    // for the selected destination, so command substitution must use the
+    // fullscreen path and keep stdout byte-clean.
+    let force_fullscreen = should_use_fullscreen(
+        io::stdout().is_terminal(),
+        env::var_os("DGO_TUI_FULLSCREEN").is_some(),
+    );
     let mut terminal = if force_fullscreen {
         fullscreen_terminal(&mut terminal_mode)?
     } else {
@@ -90,11 +221,15 @@ pub fn pick(
         .hide_cursor()
         .map_err(|error| DirgoError::io("terminal", error))?;
 
-    let mut matcher = LiveMatcher::new(candidates, query);
-    let preview_loader = PreviewLoader::new();
-    let mut state = PickerState::new(query);
+    let mut state = PickerState::new(query, options);
     let mut visible = Vec::new();
-    let selection = loop {
+    terminal
+        .draw(|frame| render(frame, &visible, &mut state, Availability::default()))
+        .map_err(|error| DirgoError::io("terminal", error))?;
+
+    let actions = actions::availability(action_config);
+    let preview_loader = PreviewLoader::new();
+    let outcome = loop {
         let status = matcher.tick(6);
         if status.changed || visible.is_empty() {
             visible = matcher.cached_results();
@@ -142,9 +277,11 @@ pub fn pick(
                         } else {
                             action
                         },
-                    });
+                    })
+                    .map_or(PickOutcome::Cancelled, PickOutcome::Selected);
             }
-            PickerAction::Cancel => break None,
+            PickerAction::Refresh => break PickOutcome::Refresh,
+            PickerAction::Cancel => break PickOutcome::Cancelled,
         }
     };
     terminal
@@ -153,7 +290,11 @@ pub fn pick(
     terminal
         .show_cursor()
         .map_err(|error| DirgoError::io("terminal", error))?;
-    Ok(selection)
+    Ok(outcome)
+}
+
+fn should_use_fullscreen(stdout_is_terminal: bool, explicitly_forced: bool) -> bool {
+    explicitly_forced || !stdout_is_terminal
 }
 
 struct LiveMatcher {
@@ -169,10 +310,23 @@ struct LiveMatcher {
 impl LiveMatcher {
     fn new(candidates: Vec<Candidate>, query: &str) -> Self {
         let total_items = candidates.len();
+        Self::from_iter(candidates.into_iter(), total_items, query)
+    }
+
+    fn from_stream(candidates: PickerCandidateStream, query: &str) -> Self {
+        let total_items = candidates.len();
+        Self::from_iter(candidates, total_items, query)
+    }
+
+    fn from_iter(
+        candidates: impl Iterator<Item = Candidate> + Send + 'static,
+        total_items: usize,
+        query: &str,
+    ) -> Self {
         let nucleo = Nucleo::new(NucleoConfig::DEFAULT, Arc::new(|| {}), None, 2);
-        let injector = nucleo.injector();
         let cancel_injection = Arc::new(AtomicBool::new(false));
         let thread_cancel = Arc::clone(&cancel_injection);
+        let injector = nucleo.injector();
         let injection_thread = thread::spawn(move || {
             for candidate in candidates {
                 if thread_cancel.load(Ordering::Relaxed) {
@@ -184,6 +338,29 @@ impl LiveMatcher {
                 });
             }
         });
+        let mut matcher = Self {
+            nucleo,
+            query: String::new(),
+            path_mode: false,
+            total_items,
+            cancel_injection,
+            injection_thread: Some(injection_thread),
+            running: true,
+        };
+        matcher.set_query(query);
+        matcher
+    }
+
+    fn from_loader(
+        total_items: usize,
+        query: &str,
+        loader: impl FnOnce(nucleo::Injector<Candidate>, Arc<AtomicBool>) + Send + 'static,
+    ) -> Self {
+        let nucleo = Nucleo::new(NucleoConfig::DEFAULT, Arc::new(|| {}), None, 2);
+        let cancel_injection = Arc::new(AtomicBool::new(false));
+        let injector = nucleo.injector();
+        let thread_cancel = Arc::clone(&cancel_injection);
+        let injection_thread = thread::spawn(move || loader(injector, thread_cancel));
         let mut matcher = Self {
             nucleo,
             query: String::new(),
@@ -394,6 +571,7 @@ struct PickerState {
     list: ListState,
     preview: bool,
     color: bool,
+    unicode: bool,
     matching: bool,
     matched_total: usize,
     selection_changed_at: Instant,
@@ -402,7 +580,7 @@ struct PickerState {
 }
 
 impl PickerState {
-    fn new(query: &str) -> Self {
+    fn new(query: &str, options: Options) -> Self {
         let mut list = ListState::default();
         list.select(Some(0));
         Self {
@@ -410,7 +588,8 @@ impl PickerState {
             cursor: query.len(),
             list,
             preview: true,
-            color: env::var_os("NO_COLOR").is_none(),
+            color: options.color,
+            unicode: options.unicode,
             matching: true,
             matched_total: 0,
             selection_changed_at: Instant::now(),
@@ -548,6 +727,7 @@ enum PickerAction {
     Continue,
     QueryChanged,
     Select(Action),
+    Refresh,
     Cancel,
 }
 
@@ -568,6 +748,7 @@ fn handle_key(
         (KeyCode::Char('e'), KeyModifiers::CONTROL) if actions.editor => {
             PickerAction::Select(Action::Editor)
         }
+        (KeyCode::Char('r'), KeyModifiers::CONTROL) => PickerAction::Refresh,
         (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => PickerAction::Cancel,
         (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
             if state.clear_query() {
@@ -685,16 +866,16 @@ fn render(
 fn render_query(frame: &mut Frame<'_>, area: Rect, state: &PickerState, compact: bool) {
     let (before, after) = state.query.split_at(state.cursor);
     let mut spans = vec![
-        Span::styled("› ", accent(state.color)),
+        Span::styled(if state.unicode { "› " } else { "> " }, accent(state.color)),
         Span::raw(before),
-        Span::styled("▏", accent(state.color)),
+        Span::styled(if state.unicode { "▏" } else { "|" }, accent(state.color)),
     ];
     if after.is_empty() && state.query.is_empty() {
         spans.push(Span::styled("Type to search", muted()));
     } else {
         spans.push(Span::raw(after));
     }
-    let block = if compact {
+    let block = if compact || !state.unicode {
         Block::default().padding(Padding::horizontal(1))
     } else {
         Block::default()
@@ -734,7 +915,11 @@ fn render_results(
             ListItem::new(vec![
                 Line::from(vec![
                     Span::styled(
-                        if index == selected { "│ " } else { "  " },
+                        if index == selected {
+                            if state.unicode { "│ " } else { "| " }
+                        } else {
+                            "  "
+                        },
                         accent(state.color),
                     ),
                     Span::styled(marker, muted()),
@@ -825,7 +1010,14 @@ fn render_preview(
 
 fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &PickerState) {
     let (title, hint) = if state.matching {
-        ("Finding directories…", "Results update while you type")
+        (
+            if state.unicode {
+                "Finding directories…"
+            } else {
+                "Finding directories..."
+            },
+            "Results update while you type",
+        )
     } else {
         ("No directories match", "Try a shorter query")
     };
@@ -855,9 +1047,15 @@ fn render_footer(
         format!("{} matches", state.matched_total)
     };
     let mut controls = if compact {
-        "↑↓  Enter  Esc".to_owned()
-    } else {
+        if state.unicode {
+            "↑↓  Enter  Esc".to_owned()
+        } else {
+            "Up/Down  Enter  Esc".to_owned()
+        }
+    } else if state.unicode {
         "↑↓ move   Enter go".to_owned()
+    } else {
+        "Up/Down move   Enter go".to_owned()
     };
     if !compact {
         if actions.open {
@@ -869,7 +1067,7 @@ fn render_footer(
         if actions.editor {
             controls.push_str("   ^E editor");
         }
-        controls.push_str("   Tab preview   Esc close");
+        controls.push_str("   ^R refresh   Tab preview   Esc close");
     }
     let line = Line::from(vec![
         Span::styled(controls, muted()),
@@ -894,6 +1092,13 @@ fn muted() -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redirected_stdout_forces_fullscreen_to_protect_shell_output() {
+        assert!(should_use_fullscreen(false, false));
+        assert!(should_use_fullscreen(true, true));
+        assert!(!should_use_fullscreen(true, false));
+    }
     use ratatui::backend::TestBackend;
     use std::path::Path;
 
@@ -907,6 +1112,7 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
             score: 1.0,
+            score_breakdown: crate::model::ScoreBreakdown::from_total(1.0),
             source: "test",
             is_project_root: project,
             bookmark: None,
@@ -916,7 +1122,7 @@ mod tests {
     fn rendered(width: u16, height: u16, candidates: &[Candidate]) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).expect("terminal");
-        let mut state = PickerState::new("pun");
+        let mut state = PickerState::new("pun", Options::default());
         state.color = false;
         state.matching = false;
         state.matched_total = candidates.len();
@@ -959,7 +1165,7 @@ mod tests {
 
     #[test]
     fn unicode_query_editing_respects_character_boundaries() {
-        let mut state = PickerState::new("a界");
+        let mut state = PickerState::new("a界", Options::default());
         assert!(matches!(
             handle_key(
                 KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
@@ -985,7 +1191,7 @@ mod tests {
 
     #[test]
     fn action_shortcuts_are_exposed_only_when_available() {
-        let mut state = PickerState::new("api");
+        let mut state = PickerState::new("api", Options::default());
         let available = Availability {
             open: true,
             copy: false,
@@ -1017,6 +1223,15 @@ mod tests {
                 available,
             ),
             PickerAction::Select(Action::Editor)
+        ));
+        assert!(matches!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+                &mut state,
+                0,
+                Availability::default(),
+            ),
+            PickerAction::Refresh
         ));
     }
 
@@ -1061,5 +1276,30 @@ mod tests {
         assert!(!preview.entries.iter().any(|entry| entry == "nested.txt"));
         assert!(preview.entries.iter().any(|entry| entry.ends_with('/')));
         assert!(preview.error.is_none());
+    }
+
+    #[test]
+    fn ascii_mode_avoids_unicode_ui_glyphs_and_color() {
+        let backend = TestBackend::new(44, 9);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let candidates = [candidate("/work/Punk", true)];
+        let mut state = PickerState::new(
+            "pun",
+            Options {
+                color: false,
+                unicode: false,
+            },
+        );
+        state.matching = false;
+        state.matched_total = candidates.len();
+        terminal
+            .draw(|frame| render(frame, &candidates, &mut state, Availability::default()))
+            .expect("draw");
+        let output = terminal.backend().to_string();
+        assert!(output.contains("> pun|"));
+        assert!(output.contains("| "));
+        assert!(output.contains("> Punk"));
+        assert!(output.contains("Up/Down"));
+        assert!(!output.contains(['›', '▏', '│', '↑', '↓', '…']));
     }
 }
