@@ -1,0 +1,38 @@
+[package]
+name = "dirgo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Instant directory navigation for your terminal"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["cli", "terminal", "filesystem", "fuzzy-search", "navigation"]
+categories = ["command-line-utilities", "filesystem"]
+
+[[bin]]
+name = "dgo"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+crossterm = "0.28.1"
+dirs = "6.0.0"
+fs2 = "0.4.3"
+ignore = "0.4.33"
+nucleo = "0.5.0"
+nucleo-matcher = "0.3.1"
+ratatui = "0.29.0"
+redb = "4.1.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+shell-escape = "0.1.5"
+thiserror = "2.0.20"
+toml = "1.1.4"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+tempfile = "3.27.0"
