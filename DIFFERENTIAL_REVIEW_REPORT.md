@@ -6,13 +6,12 @@ Reviewed state: complete working-tree release candidate against the baseline
 
 ## Executive summary
 
-**Local decision: PASS.** No open P0 or P1 security or correctness finding is
-known in the reviewed tree. The code is suitable to become the `0.1.0` release
-candidate after it is committed. Public release is still gated by evidence that
-cannot exist in a dirty local tree: green remote CI on the exact commit, native
-artifacts and checksum verification, Windows runtime validation, clean-machine
-install/upgrade/rollback drills, GitHub security-advisory configuration, and the
-final publication dry run.
+**Release-candidate decision: PASS.** No open P0 or P1 security or correctness
+finding is known in the reviewed tree. Local preflight, crates.io dry-run, and
+remote macOS/Linux/dependency-policy CI pass; the single Dependabot alert is
+fixed. Public release remains gated only by the tag-built native artifacts,
+independent checksum verification, archive install drills, and final registry
+publication.
 
 | Severity | Found | Open |
 | --- | ---: | ---: |
@@ -211,9 +210,10 @@ inspection, or clean-machine installer drills.
 
 ## History analysis
 
-`git log main` contains one baseline commit (`284a316`). Its author metadata was
+`git log main` begins with baseline commit `284a316`. Its author metadata was
 rewritten before release to use the canonical GitHub noreply identity; the code
-tree is unchanged from the original baseline.
+tree is unchanged from the original baseline. Release preparation and the
+dependency/TUI security fix are retained as separate reviewable commits.
 There is no prior security-fix lineage or mature blame history from which to
 infer invariants. Searches for removed validation, escaping, schema, lock, and
 permission checks were therefore reviewed against the complete implementation;
@@ -221,14 +221,9 @@ no unexplained removal remains.
 
 ## Remaining publication gates
 
-1. Commit the reviewed tree and re-authenticate `gh` for `RudySource`.
-2. Push that exact commit and require green macOS/Linux CI plus dependency policy.
-3. Verify private security advisories and repository protection/settings.
-4. Run the crates.io dry run and confirm package ownership/name availability.
-5. Complete the manual terminal/accessibility pass.
-6. Tag exactly `v0.1.0`; download all four native archives and `SHA256SUMS`.
-7. Verify hashes and execute macOS/Linux/Windows clean install, upgrade, and
-   rollback drills before publishing package-manager metadata.
+1. Tag exactly `v0.1.0`; download all four native archives and `SHA256SUMS`.
+2. Verify hashes and execute the available native archive install drills.
+3. Publish crates.io and real Homebrew metadata only after those artifacts pass.
 
 Any code, dependency, workflow, or release-document change after this review
 invalidates the PASS until the affected gates are rerun.

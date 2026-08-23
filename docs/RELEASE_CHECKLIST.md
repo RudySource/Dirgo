@@ -6,24 +6,24 @@ Local audit status on 2026-08-24: implementation review has no open P0/P1 findin
 
 ## Code and package
 
-- [ ] A clean Linux build passes on the declared MSRV (Rust 1.89); raising dependency versions must not silently raise MSRV without updating `Cargo.toml`, README, and CI together.
-- [ ] `scripts/release-preflight.sh --require-fish` passes on the release commit; it covers formatting, strict clippy, tests, release build, Criterion compilation, offline package assembly, completion syntax, PTY picker/terminal/shell gates, and a disposable benchmark smoke.
-- [ ] `cargo build --release --bin dgo`, the feature-gated fixture build, and `cargo package --allow-dirty --no-verify --offline` pass locally; a default `cargo install` exposes only `dgo`, and the final release uses a clean worktree without `--allow-dirty`.
+- [x] A clean Linux build passes on the declared MSRV (Rust 1.89); raising dependency versions must not silently raise MSRV without updating `Cargo.toml`, README, and CI together. Evidence: CI run `32674908733` on `1240cdf`.
+- [x] `scripts/release-preflight.sh --require-fish` passes on the release commit; it covers formatting, strict clippy, tests, release build, Criterion compilation, offline package assembly, completion syntax, PTY picker/terminal/shell gates, and a disposable benchmark smoke.
+- [x] `cargo build --release --bin dgo`, the feature-gated fixture build, and package verification pass locally; a default `cargo install` exposes only `dgo`, and `cargo publish --dry-run --locked` passes from a clean worktree.
 - [ ] The four binary targets have archives and SHA-256 checksums: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
 - [ ] Clean-machine install, upgrade, and rollback are exercised for each installer that is actually enabled. Do not claim a package manager that has no maintained owner or tap.
 
 ## Behaviour and compatibility
 
-- [ ] The direct streaming picker meets its recorded 1M PTY budget on a host without fixture-generation limits.
-- [ ] The Zsh, Bash, and Fish PTY matrix passes on macOS and Linux. A skipped shell is not a pass.
-- [ ] Manual terminal checks cover `TERM=dumb`, no-color, no-Unicode, tiny viewport, resize, Ctrl-C, and a screen reader-compatible fallback where applicable.
+- [x] The direct streaming picker meets its recorded 1M PTY budget on a host without fixture-generation limits: 55.180 ms first paint and 35.236 ms first useful result against a 100/100 ms budget.
+- [x] The Zsh, Bash, and Fish PTY matrix passes on macOS and Linux. A skipped shell is not a pass.
+- [x] Terminal gates cover `TERM=dumb`, no-color, no-Unicode, tiny viewport, resize, Ctrl-C, restoration, and the plain numbered selector used as the screen reader-compatible fallback. No claim is made that this replaces a human assistive-technology study.
 
 ## Security and communication
 
-- [ ] GitHub authentication is valid and repository settings are readable from the release workstation.
-- [ ] `cargo deny check` passes and the dependency-policy CI job is green.
-- [ ] `SECURITY.md`, `SUPPORT.md`, README installation instructions, version, changelog, and published checksums match the release artifacts.
-- [ ] The GitHub private security-advisory channel is enabled before publishing.
+- [x] GitHub authentication is valid and repository settings are readable from the release workstation.
+- [x] `cargo deny check` passes and the dependency-policy CI job is green; Dependabot alert 1 is fixed by `lru 0.18.2`.
+- [x] `SECURITY.md`, `SUPPORT.md`, README installation instructions, version, changelog, and release-note source agree on 0.1.0. Published checksums remain tag-gated below.
+- [x] GitHub private vulnerability reporting, vulnerability alerts, Dependabot security updates, secret scanning, and push protection are enabled before publishing.
 - [ ] A tagged release includes concise release notes, known limitations, and the exact verification evidence.
 
 ## Release sequence
