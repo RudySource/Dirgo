@@ -17,8 +17,8 @@ final publication dry run.
 | Severity | Found | Open |
 | --- | ---: | ---: |
 | P0 critical | 0 | 0 |
-| P1 high | 4 | 0 |
-| P2 medium | 9 | 0 |
+| P1 high | 5 | 0 |
+| P2 medium | 10 | 0 |
 | P3 low | 1 | 0 |
 
 ## What changed
@@ -133,6 +133,22 @@ embed a hostname and a per-user temporary-directory identifier in `--report`
 output. Reports now record only `uname -srm`, and generated fixture/sandbox paths
 use a neutral `/tmp/dirgo-*` prefix.
 
+### R15 — released dependency graph contained vulnerable `lru` (P2)
+
+GitHub Dependabot identified GHSA-rhfx-m35p-ff5j in `lru 0.12.5`, pulled by
+Ratatui 0.29. Ratatui is now 0.30.2 with default features disabled except for
+the required Crossterm backend; this selects patched `lru 0.18.2`. Direct
+Crossterm was aligned to 0.29, and the obsolete cargo-deny exception for the
+removed `paste` dependency was deleted.
+
+### R16 — dependency update blocked fullscreen picker teardown (P1)
+
+Ratatui 0.30 changed `Terminal::clear()` to preserve the cursor via a DSR
+position query. In a fullscreen shell picker this unnecessary teardown query
+timed out and discarded an otherwise valid selection. Fullscreen cleanup now
+skips the redundant clear because leaving the alternate screen restores the
+original display; the real PTY picker and Zsh/Bash/Fish wrapper matrix pass.
+
 ## Adversarial analysis
 
 - Generated wrappers quote command substitution and invoke `builtin cd --`;
@@ -219,9 +235,7 @@ invalidates the PASS until the affected gates are rerun.
 
 ## Recommended follow-up
 
-- Upgrade Ratatui when a compatible release removes transitive unmaintained
-  `paste`; then remove the explicit cargo-deny advisory exception.
-- Reduce duplicate `syn`, `unicode-width`, and `windows-sys` versions when the
+- Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when the
   dependency graph permits, without raising MSRV accidentally.
 - Add native Windows PTY/runtime automation after the first manual Windows gate.
 - Keep package-manager expansion maintainer-owned; never publish placeholder

@@ -284,9 +284,15 @@ fn pick_with_matcher(
             PickerAction::Cancel => break PickOutcome::Cancelled,
         }
     };
-    terminal
-        .clear()
-        .map_err(|error| DirgoError::io("terminal", error))?;
+    // Ratatui 0.30 preserves the cursor around `Terminal::clear()` by issuing a
+    // DSR cursor-position query. A fullscreen picker is already discarded by
+    // `LeaveAlternateScreen`, so querying (and potentially timing out on) the
+    // terminal during teardown is both unnecessary and harmful to shell use.
+    if !terminal_mode.alternate_screen {
+        terminal
+            .clear()
+            .map_err(|error| DirgoError::io("terminal", error))?;
+    }
     terminal
         .show_cursor()
         .map_err(|error| DirgoError::io("terminal", error))?;

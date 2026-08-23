@@ -3,9 +3,6 @@
 
 [advisories]
 yanked = "deny"
-ignore = [
-  { id = "RUSTSEC-2024-0436", reason = "paste is an unmaintained transitive macro dependency of ratatui 0.29; the advisory reports no vulnerability and ratatui migration is tracked for a post-0.1 dependency refresh" },
-]
 
 [licenses]
 allow = ["Apache-2.0", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
