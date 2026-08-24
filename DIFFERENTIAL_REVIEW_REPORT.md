@@ -8,7 +8,7 @@ Reviewed state: complete working-tree release candidate against the baseline
 
 **Release-candidate decision: PASS.** No open P0 or P1 security or correctness
 finding is known in the reviewed tree. Local preflight, crates.io dry-run, and
-remote macOS/Linux/dependency-policy CI pass; the single Dependabot alert is
+remote macOS/Linux/Windows/dependency-policy CI pass; the single Dependabot alert is
 fixed. Public release remains gated only by the tag-built native artifacts,
 independent checksum verification, archive install drills, and final registry
 publication.
@@ -17,7 +17,7 @@ publication.
 | --- | ---: | ---: |
 | P0 critical | 0 | 0 |
 | P1 high | 6 | 0 |
-| P2 medium | 10 | 0 |
+| P2 medium | 11 | 0 |
 | P3 low | 1 | 0 |
 
 ## What changed
@@ -157,6 +157,14 @@ version execution, refresh, exact query output, and diagnostics. The failed
 `v0.1.0` tag is retained without a GitHub Release; the corrected release is
 versioned `0.1.1` rather than silently moving a public tag.
 
+### R18 — pinned GitHub Actions runtime was deprecated (P2)
+
+The immutable checkout pin still targeted the Node 20 generation, which GitHub
+was already force-running on Node 24 with a deprecation warning. Checkout,
+artifact upload, and artifact download now use current Dependabot-resolved
+major versions pinned to exact official commit SHAs. Actionlint and the full
+native CI matrix validate the updated workflow surface before tagging.
+
 ## Adversarial analysis
 
 - Generated wrappers quote command substitution and invoke `builtin cd --`;
@@ -203,7 +211,8 @@ additional Linux-only non-UTF-8 filesystem regression passed in a clean
 
 Additional evidence includes:
 
-- Windows MSVC `cargo check --locked --offline --bin dgo`;
+- native Windows CI: 56 unit tests, three Windows CLI integration tests, strict
+  Clippy, and the MSVC release binary build;
 - clean Debian Rust 1.89 locked release build and Zsh/Bash/Fish PTY matrix;
 - cargo-deny 0.20 advisories, bans, licenses, and sources checks;
 - actionlint 1.7.12 on CI and release workflows;

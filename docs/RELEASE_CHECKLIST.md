@@ -2,7 +2,7 @@
 
 This checklist is a publication gate, not a promise of future work. Do not create a Git tag, GitHub release, Homebrew formula, or crates.io publication until every applicable item is evidenced in the release record.
 
-Local audit status on 2026-08-24: implementation review has no open P0/P1 finding; default installation exposes only `dgo`; Windows MSVC type-check, actionlint, cargo-deny, macOS/Linux shell evidence, and the non-publishing preflight are available. Working-tree/history secret scans pass, commit identity uses GitHub noreply, and the rendered demo contains no user-specific path or author metadata. Items remain unchecked below when they require the final clean commit, remote CI, native release artifacts, manual accessibility work, or publication credentials.
+Local audit status on 2026-08-24: implementation review has no open P0/P1 finding; default installation exposes only `dgo`; native Ubuntu, macOS, and Windows CI, actionlint, cargo-deny, shell/PTY evidence, and the non-publishing preflight pass. Working-tree/history secret scans pass, commit identity uses GitHub noreply, and the rendered demo contains no user-specific path or author metadata. Items remain unchecked below only when they require the tagged native release artifacts, installer drills, or publication credentials.
 
 ## Code and package
 
@@ -31,7 +31,7 @@ Local audit status on 2026-08-24: implementation review has no open P0/P1 findin
 Run these steps in order. Stop at the first failed gate.
 
 1. Re-authenticate GitHub if `gh auth status` is not green, then verify the repository and private security-advisory setting.
-2. Commit the complete release candidate, push it, and wait for both macOS/Linux CI jobs and dependency policy to pass on that exact commit.
+2. Commit the complete release candidate, push it, and wait for macOS, Linux, Windows, and dependency-policy CI to pass on that exact commit.
 3. Run `cargo publish --dry-run --locked` and verify that the `dirgo` crate name is still publishable for this owner.
 4. Perform the manual accessibility/terminal pass from the built commit, including the plain fallback.
 5. Create and push only the matching annotated tag (`v0.1.1` for package version `0.1.1`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag with no release or package publication; it must never be moved or reused.
