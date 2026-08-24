@@ -98,14 +98,13 @@ mod tests {
 
     #[test]
     fn parses_scores_and_preserves_spaces_in_absolute_paths() {
-        let parsed = parse_zoxide("   4.0 /tmp/one space\n12.2 /tmp/two\n").expect("parse");
-        assert_eq!(
-            parsed,
-            vec![
-                (PathBuf::from("/tmp/one space"), 4),
-                (PathBuf::from("/tmp/two"), 13),
-            ]
-        );
+        let one = std::env::temp_dir().join("dirgo zoxide one space");
+        let two = std::env::temp_dir().join("dirgo-zoxide-two");
+        let input = format!("   4.0 {}\n12.2 {}\n", one.display(), two.display());
+        let parsed = parse_zoxide(&input).expect("parse");
+        let mut expected = vec![(one, 4), (two, 13)];
+        expected.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(parsed, expected);
     }
 
     #[test]
@@ -123,7 +122,9 @@ mod tests {
 
     #[test]
     fn duplicate_paths_merge_idempotently_with_the_larger_score() {
-        let parsed = parse_zoxide("2 /tmp/path\n8 /tmp/path\n").expect("parse");
-        assert_eq!(parsed, vec![(PathBuf::from("/tmp/path"), 8)]);
+        let path = std::env::temp_dir().join("dirgo-zoxide-duplicate");
+        let input = format!("2 {}\n8 {}\n", path.display(), path.display());
+        let parsed = parse_zoxide(&input).expect("parse");
+        assert_eq!(parsed, vec![(path, 8)]);
     }
 }
