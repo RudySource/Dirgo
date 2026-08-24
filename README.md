@@ -18,7 +18,7 @@ $ dgo punk
 Unlike history-only jumpers, Dirgo indexes the filesystem and can find directories you have never visited. History then improves ranking without becoming a discovery requirement.
 
 > [!IMPORTANT]
-> Dirgo `0.1.1` is the current release candidate. Implementation and local gates are complete through the performance/compatibility milestone; checksummed multi-platform artifacts and publication drills remain tracked in [ROADMAP.md](ROADMAP.md).
+> Dirgo `0.1.2` supersedes `0.1.1`. The earlier Linux archive accidentally required glibc 2.39; `0.1.2` is built and gated against glibc 2.35 for compatibility with current mainstream distributions.
 
 ## What works now
 
@@ -37,9 +37,21 @@ Unlike history-only jumpers, Dirgo indexes the filesystem and can find directori
 
 The picker opens immediately and updates matches in the background as the query changes. For large indexes it decodes and injects records on a cancellable worker, while a compact collision-safe lookup preserves unique exact-basename navigation without scanning the whole index. Its preview reads at most 20 top-level entries on a separate worker after the selection settles. `Ctrl-R` closes the picker, rebuilds the index atomically, and reports the result.
 
-## Build and install locally
+## Install
 
-Rust 1.89 or newer is required. This is the actual minimum supported by the locked dependency graph and is verified by the Linux clean-build gate.
+Download the archive for your platform and `SHA256SUMS` from the [latest GitHub Release](https://github.com/RudySource/Dirgo/releases/latest). Verify the checksum before extracting:
+
+```bash
+# Linux
+sha256sum --check SHA256SUMS
+
+# macOS
+shasum -a 256 -c SHA256SUMS
+```
+
+On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`.
+
+To build from source instead, Rust 1.89 or newer is required. This is the actual minimum supported by the locked dependency graph and is verified by the Linux clean-build gate.
 
 ```bash
 cargo build --release
@@ -275,7 +287,6 @@ scripts/release-preflight.sh
 
 - [Baseline audit](docs/BASELINE_AUDIT.md)
 - [Domain language](CONTEXT.md)
-- [Release roadmap](ROADMAP.md)
 - [Release checklist](docs/RELEASE_CHECKLIST.md)
 - [Differential security and release review](DIFFERENTIAL_REVIEW_REPORT.md)
 - [Contributing](CONTRIBUTING.md)

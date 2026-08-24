@@ -25,7 +25,7 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: tar.gz
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
           - os: windows-2022
@@ -50,6 +50,15 @@ jobs:
 
       - run: cargo test --locked --target ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }} --bin dgo
+
+      - name: Verify Linux glibc compatibility baseline
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          binary="target/${{ matrix.target }}/release/dgo"
+          maximum=$(objdump -T "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1)
+          printf 'Maximum required glibc symbol: %s\n' "$maximum"
+          test "$(printf '%s\n' GLIBC_2.35 "$maximum" | sort -V | tail -n 1)" = GLIBC_2.35
 
       - name: Package Unix archive
         if: matrix.archive == 'tar.gz'

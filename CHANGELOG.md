@@ -4,6 +4,12 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-24
+
+### Fixed
+
+- Build the Linux GNU archive on Ubuntu 22.04 and reject binaries requiring symbols newer than glibc 2.35. The superseded 0.1.1 Linux archive was built on Ubuntu 24.04 and required glibc 2.39, so it could not run on Debian 12.
+
 ## [0.1.1] - 2026-08-24
 
 ### Fixed

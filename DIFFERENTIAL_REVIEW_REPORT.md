@@ -16,7 +16,7 @@ publication.
 | Severity | Found | Open |
 | --- | ---: | ---: |
 | P0 critical | 0 | 0 |
-| P1 high | 6 | 0 |
+| P1 high | 7 | 0 |
 | P2 medium | 11 | 0 |
 | P3 low | 1 | 0 |
 
@@ -165,6 +165,15 @@ artifact upload, and artifact download now use current Dependabot-resolved
 major versions pinned to exact official commit SHAs. Actionlint and the full
 native CI matrix validate the updated workflow surface before tagging.
 
+### R19 — Linux release archive required glibc 2.39 (P1)
+
+The first successful GitHub release built its GNU/Linux binary on Ubuntu 24.04.
+Although native CI and packaging passed, the downloaded archive failed on a
+clean Debian 12 container because it required `GLIBC_2.39`. Release builds now
+run on Ubuntu 22.04 and inspect the final dynamic symbol table, rejecting any
+binary that requires a glibc symbol newer than 2.35. The immutable `v0.1.1`
+release is explicitly marked superseded; the corrected release is `v0.1.2`.
+
 ## Adversarial analysis
 
 - Generated wrappers quote command substitution and invoke `builtin cd --`;
@@ -238,7 +247,7 @@ no unexplained removal remains.
 
 ## Remaining publication gates
 
-1. Tag exactly `v0.1.1`; download all four native archives and `SHA256SUMS`.
+1. Tag exactly `v0.1.2`; download all four native archives and `SHA256SUMS`.
 2. Verify hashes and execute the available native archive install drills.
 3. Publish crates.io and real Homebrew metadata only after those artifacts pass.
 
@@ -250,7 +259,7 @@ invalidates the PASS until the affected gates are rerun.
 - Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when the
   dependency graph permits, without raising MSRV accidentally.
 - Expand native Windows coverage when parent-shell PowerShell/cmd integration is
-  introduced; 0.1.1 intentionally ships archive CLI support without those wrappers.
+  introduced; 0.1.2 intentionally ships archive CLI support without those wrappers.
 - Keep package-manager expansion maintainer-owned; never publish placeholder
   taps, buckets, or checksums.
 

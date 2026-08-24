@@ -22,7 +22,7 @@ Local audit status on 2026-08-24: implementation review has no open P0/P1 findin
 
 - [x] GitHub authentication is valid and repository settings are readable from the release workstation.
 - [x] `cargo deny check` passes and the dependency-policy CI job is green; Dependabot alert 1 is fixed by `lru 0.18.2`.
-- [x] `SECURITY.md`, `SUPPORT.md`, README installation instructions, version, changelog, and release-note source agree on 0.1.1. Published checksums remain tag-gated below.
+- [x] `SECURITY.md`, `SUPPORT.md`, README installation instructions, version, changelog, and release-note source agree on 0.1.2. Published checksums remain tag-gated below.
 - [x] GitHub private vulnerability reporting, vulnerability alerts, Dependabot security updates, secret scanning, and push protection are enabled before publishing.
 - [ ] A tagged release includes concise release notes, known limitations, and the exact verification evidence.
 
@@ -34,7 +34,7 @@ Run these steps in order. Stop at the first failed gate.
 2. Commit the complete release candidate, push it, and wait for macOS, Linux, Windows, and dependency-policy CI to pass on that exact commit.
 3. Run `cargo publish --dry-run --locked` and verify that the `dirgo` crate name is still publishable for this owner.
 4. Perform the manual accessibility/terminal pass from the built commit, including the plain fallback.
-5. Create and push only the matching annotated tag (`v0.1.1` for package version `0.1.1`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag with no release or package publication; it must never be moved or reused.
+5. Create and push only the matching annotated tag (`v0.1.2` for package version `0.1.2`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag; `v0.1.1` is retained as a superseded release whose Linux install drill exposed its glibc 2.39 requirement. Neither historical tag may be moved or reused.
 6. Download every release asset plus `SHA256SUMS`; verify hashes independently on macOS, Linux, and Windows.
 7. Exercise clean install, upgrade, and rollback with the downloaded archives. Record commands, host details, and results in the release notes.
 8. Substitute the real version and published checksums into `packaging/homebrew/dirgo.rb.template`; publish it only in a tap with a confirmed maintainer.

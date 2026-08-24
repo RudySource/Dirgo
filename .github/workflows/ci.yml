@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2022]
+        os: [ubuntu-22.04, macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +33,12 @@ jobs:
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
       - run: cargo build --release --bin dgo
+      - name: Verify Linux glibc compatibility baseline
+        if: runner.os == 'Linux'
+        run: |
+          maximum=$(objdump -T target/release/dgo | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1)
+          printf 'Maximum required glibc symbol: %s\n' "$maximum"
+          test "$(printf '%s\n' GLIBC_2.35 "$maximum" | sort -V | tail -n 1)" = GLIBC_2.35
       - if: runner.os != 'Windows'
         run: cargo build --release --bin dgo-fixture --features benchmark-tools
       - if: runner.os != 'Windows'
