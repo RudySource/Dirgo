@@ -1,6 +1,18 @@
+<table width="100%">
+  <tr>
+    <td align="center">
+      <strong>💚 Support Dirgo</strong><br>
+      If Dirgo saves you time, <a href="https://github.com/RudySource/Dirgo">star it on GitHub</a>,
+      <a href="https://github.com/RudySource/Dirgo/issues/new/choose">share feedback</a>, or
+      <a href="CONTRIBUTING.md">contribute a fix</a>.<br><br>
+      <a href="#support-dirgo"><strong>Support development with BTC or USDT TRC20 →</strong></a>
+    </td>
+  </tr>
+</table>
+
 <div align="center">
 
-<img src="docs/assets/dirgo-wordmark.png" width="560" alt="Dirgo — fast directory navigation for the terminal">
+<img src="docs/assets/dirgo-wordmark-rounded.png" width="620" alt="Dirgo — fast directory navigation for the terminal">
 
 <h1>Dirgo</h1>
 
@@ -22,6 +34,7 @@
   <a href="#interactive-picker">Picker</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#configuration">Configuration</a> ·
+  <a href="#support-dirgo">Support</a> ·
   <a href="#privacy-and-security">Security</a> ·
   <a href="#release-status-and-roadmap">Roadmap</a>
 </p>
@@ -55,6 +68,18 @@ Dirgo finds directories by intent, not by memory. It indexes the filesystem so y
 Dirgo ships as one `dgo` binary. It has no runtime dependency on `fd`, `fzf`, `zoxide`, or `eza`.
 
 ## Install
+
+Install the binary, connect your shell once, then jump by intent instead of typing full paths.
+
+<p align="center">
+  <img src="docs/assets/dirgo-install.gif" width="860" alt="Installing Dirgo, connecting Zsh, and making the first directory jump">
+</p>
+
+| **01 · Install** | **02 · Connect** | **03 · Go** |
+| :---: | :---: | :---: |
+| Use the verified release installer or Homebrew. | `dgo setup` shows the shell change before applying it. | Run `dgo <name>` from anywhere. |
+
+<p align="center"><sub>The animation shows the Homebrew route on macOS. The release installer and manual packages are below.</sub></p>
 
 ### macOS and Linux
 
@@ -327,6 +352,43 @@ and does not block normal use of the current release.
 > should enter development only with a defined user need, supported platform
 > matrix, regression tests, and a versioned release plan.
 
+## Support Dirgo
+
+Dirgo is free and open source. Voluntary donations help fund maintenance,
+release infrastructure, platform support, and future improvements.
+
+<table width="100%">
+  <tr>
+    <td align="center">
+      <strong>₿ Bitcoin</strong><br>
+      <sub>Network: Bitcoin · Asset: BTC</sub><br><br>
+      <img src="https://img.shields.io/badge/Wallet-BTC-f7931a?style=for-the-badge&logo=bitcoin&logoColor=white" alt="Bitcoin wallet"><br><br>
+      <strong>Wallet address</strong>
+      <pre><code>bc1qk9n84av9f8lj6xcg6sknq2h6r6r495y226zqje</code></pre>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <strong>₮ USDT</strong><br>
+      <sub>Network: TRON · Token standard: TRC20 · Asset: USDT</sub><br><br>
+      <img src="https://img.shields.io/badge/Wallet-USDT_TRC20-26a17b?style=for-the-badge&logo=tether&logoColor=white" alt="USDT wallet on TRON TRC20"><br><br>
+      <strong>Wallet address</strong>
+      <pre><code>TLuVmVQ1XuYYUWc4bu1AYmJt5a8vTRDNbY</code></pre>
+    </td>
+  </tr>
+</table>
+
+> [!IMPORTANT]
+> Copy the complete address from the matching block and verify its first and
+> last characters before sending. For USDT, use the TRON network and TRC20 token
+> standard only. Cryptocurrency transfers are irreversible. Donations are
+> voluntary and do not purchase priority support, roadmap influence, or service
+> guarantees.
+
+You can also support Dirgo without donating: [star the repository](https://github.com/RudySource/Dirgo),
+[report a focused issue](https://github.com/RudySource/Dirgo/issues/new/choose), or
+[contribute code and documentation](CONTRIBUTING.md).
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -359,6 +421,6 @@ Dirgo is available under your choice of the [MIT license](LICENSE-MIT) or [Apach
 
 **Built for speed. Designed for trust.**
 
-[Releases](https://github.com/RudySource/Dirgo/releases) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Support](SUPPORT.md)
+[Releases](https://github.com/RudySource/Dirgo/releases) · [Changelog](CHANGELOG.md) · [Donate](#support-dirgo) · [Security](SECURITY.md) · [Support](SUPPORT.md)
 
 </div>

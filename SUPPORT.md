@@ -18,5 +18,10 @@ Do not publish a security-sensitive reproduction in an issue. Follow
 ## Scope
 
 Support covers the latest release and the current `main` branch. Dirgo does not
-currently offer paid support or accept donations, and it never displays donation
-prompts during navigation, indexing, or installation.
+currently offer paid support. The project accepts voluntary cryptocurrency
+donations through the official wallet addresses published in
+[README.md](README.md), but a donation does not purchase priority support,
+roadmap influence, or service guarantees.
+
+Dirgo never displays donation prompts during navigation, indexing, or
+installation.
