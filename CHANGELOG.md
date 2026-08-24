@@ -4,6 +4,25 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
+### Added
+
+- Add `dgo setup` for previewable, idempotent Zsh, Bash, and Fish onboarding with explicit confirmation, timestamped backups, atomic startup-file updates, local receipts, repair, and managed-block removal.
+- Add one-command macOS/Linux and Windows installers that detect the platform, verify SHA-256 before installation, avoid administrator privileges, and ask before changing shell or user `PATH` configuration.
+- Publish stable installer asset names alongside immutable versioned archives and attach GitHub artifact attestations to every release asset.
+- Exercise the Unix installer end to end on macOS and Linux CI and the PowerShell installer on native Windows CI.
+
+### Changed
+
+- Reduce first-run onboarding to one paste and one reviewable confirmation; an index is still built automatically on the first search.
+- Route `setup` through generated shell wrappers and expose it in Zsh, Bash, and Fish completions.
+
+### Security
+
+- Refuse non-interactive shell-file changes without explicit `--yes`, preserve symlinked dotfile layouts, reject malformed or duplicate managed blocks, and abort if the startup file changes between preview and write.
+- Pin the release provenance action to an immutable commit and keep installer downloads HTTPS-only unless an explicit test mirror is provided.
+
 ## [0.1.3] - 2026-08-24
 
 ### Security

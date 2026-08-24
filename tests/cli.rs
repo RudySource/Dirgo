@@ -108,9 +108,121 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support")
+            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support")
                 .and(predicate::str::contains("_dgo_bookmarks")),
         );
+}
+
+#[test]
+fn setup_is_previewable_idempotent_reversible_and_receipted() {
+    let fixture = Fixture::new();
+    let rc = fixture.temp.path().join("shell/zshrc");
+    fs::create_dir_all(rc.parent().expect("rc parent")).expect("rc parent");
+    fs::write(&rc, "export EDITOR=vim\n").expect("initial rc");
+    fs::set_permissions(&rc, fs::Permissions::from_mode(0o640)).expect("rc permissions");
+
+    fixture
+        .command()
+        .args([
+            "setup",
+            "--shell",
+            "zsh",
+            "--rc",
+            rc.to_str().expect("utf8 rc"),
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("DIRGO")
+                .and(predicate::str::contains("Add or repair the managed block"))
+                .and(predicate::str::contains("eval \"$(command dgo init zsh)\"")),
+        );
+    assert_eq!(
+        fs::read_to_string(&rc).expect("dry-run rc"),
+        "export EDITOR=vim\n"
+    );
+
+    for _ in 0..2 {
+        fixture
+            .command()
+            .args([
+                "setup",
+                "--shell",
+                "zsh",
+                "--rc",
+                rc.to_str().expect("utf8 rc"),
+                "--yes",
+            ])
+            .assert()
+            .success();
+    }
+    let configured = fs::read_to_string(&rc).expect("configured rc");
+    assert!(configured.starts_with("export EDITOR=vim\n\n"));
+    assert_eq!(configured.matches("# >>> dirgo setup >>>").count(), 1);
+    assert_eq!(
+        fs::metadata(&rc).expect("rc metadata").permissions().mode() & 0o777,
+        0o640
+    );
+    assert!(
+        fs::read_dir(rc.parent().expect("rc parent"))
+            .expect("rc directory")
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().contains("dirgo-backup"))
+    );
+    assert!(
+        fixture
+            .temp
+            .path()
+            .join("state/dirgo/setup-zsh.json")
+            .is_file()
+    );
+
+    fixture
+        .command()
+        .args([
+            "setup",
+            "--shell",
+            "zsh",
+            "--rc",
+            rc.to_str().expect("utf8 rc"),
+            "--remove",
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Shell disconnected"));
+    assert!(
+        !fs::read_to_string(&rc)
+            .expect("removed rc")
+            .contains("dirgo setup")
+    );
+    assert!(
+        !fixture
+            .temp
+            .path()
+            .join("state/dirgo/setup-zsh.json")
+            .exists()
+    );
+}
+
+#[test]
+fn setup_refuses_noninteractive_mutation_without_explicit_consent() {
+    let fixture = Fixture::new();
+    let rc = fixture.temp.path().join("zshrc");
+    fixture
+        .command()
+        .args([
+            "setup",
+            "--shell",
+            "zsh",
+            "--rc",
+            rc.to_str().expect("utf8 rc"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("setup needs confirmation"));
+    assert!(!rc.exists());
 }
 
 #[test]
@@ -551,6 +663,7 @@ fn shell_init_contains_fast_path_and_no_path_eval() {
             predicate::str::contains("builtin cd")
                 .and(predicate::str::contains("command dgo __resolve"))
                 .and(predicate::str::contains("bookmark|import|doctor"))
+                .and(predicate::str::contains("setup|init|completions"))
                 .and(predicate::str::contains(
                     "--open|--finder|--code|--copy|--print",
                 ))

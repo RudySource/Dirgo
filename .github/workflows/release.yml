@@ -94,18 +94,33 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     permissions:
+      attestations: write
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           merge-multiple: true
+      - name: Add stable installer assets
+        shell: bash
+        run: |
+          for archive in dist/dirgo-"$GITHUB_REF_NAME"-*; do
+            stable="dist/dirgo-${archive#*-$GITHUB_REF_NAME-}"
+            cp "$archive" "$stable"
+          done
+          cp install/dirgo-installer.sh dist/dirgo-installer.sh
+          cp install/dirgo-installer.ps1 dist/dirgo-installer.ps1
       - name: Create checksums
         run: |
           cd dist
           sha256sum dirgo-* > SHA256SUMS
           sha256sum --check SHA256SUMS
+      - name: Attest release provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
       - name: Publish immutable tag assets
         env:
           GH_TOKEN: ${{ github.token }}

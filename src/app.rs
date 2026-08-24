@@ -158,6 +158,9 @@ pub fn run() -> Result<i32> {
     }
 
     let paths = AppPaths::discover()?;
+    if let Some(Command::Setup(args)) = &cli.command {
+        return crate::setup::run(&paths, args, cli.no_color, cli.no_unicode);
+    }
     if matches!(
         &cli.command,
         Some(Command::Config {
@@ -195,7 +198,7 @@ pub fn run() -> Result<i32> {
     }
 
     match cli.command {
-        Some(Command::Init { .. } | Command::Completions { .. }) => {
+        Some(Command::Init { .. } | Command::Completions { .. } | Command::Setup(_)) => {
             unreachable!("handled before storage access")
         }
         Some(Command::Query(args)) => query_command(&paths, &config, args, requested_action),
@@ -1058,7 +1061,7 @@ fn doctor(paths: &AppPaths, config: Result<Config>) -> Result<i32> {
         if env::var_os("DGO_SESSION_ID").is_some() {
             "active"
         } else {
-            "not detected; run eval \"$(dgo init <shell>)\""
+            "not detected; run `dgo setup`"
         }
     );
     paths.ensure_dirs()?;

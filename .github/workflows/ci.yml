@@ -33,6 +33,28 @@ jobs:
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
       - run: cargo build --release --bin dgo
+      - name: Unix installer smoke
+        if: runner.os != 'Windows'
+        env:
+          DGO_BIN: ${{ github.workspace }}/target/release/dgo
+        run: scripts/installer-smoke.sh
+      - name: PowerShell installer smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $assets = Join-Path $env:RUNNER_TEMP 'dirgo-installer-assets'
+          $stage = Join-Path $env:RUNNER_TEMP 'dirgo-installer-stage'
+          $destination = Join-Path $env:RUNNER_TEMP 'dirgo-installer-destination'
+          New-Item -ItemType Directory -Force $assets, "$stage/dirgo-smoke" | Out-Null
+          Copy-Item target/release/dgo.exe "$stage/dirgo-smoke/dgo.exe"
+          Compress-Archive -Path "$stage/dirgo-smoke" -DestinationPath "$assets/dirgo-x86_64-pc-windows-msvc.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$assets/dirgo-x86_64-pc-windows-msvc.zip").Hash.ToLowerInvariant()
+          "$hash  dirgo-x86_64-pc-windows-msvc.zip" | Set-Content -Encoding ascii "$assets/SHA256SUMS"
+          $env:DIRGO_DOWNLOAD_BASE = ([uri]$assets).AbsoluteUri.TrimEnd('/')
+          $env:DIRGO_INSTALL_DIR = $destination
+          $env:DIRGO_SETUP = 'skip'
+          & ./install/dirgo-installer.ps1
+          & "$destination/dgo.exe" --version
       - name: Verify Linux glibc compatibility baseline
         if: runner.os == 'Linux'
         run: |
