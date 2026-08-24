@@ -84,5 +84,5 @@ fn doctor_runs_against_isolated_windows_storage() {
         .arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Dirgo doctor"));
+        .stdout(predicate::str::contains("Dirgo Doctor"));
 }
