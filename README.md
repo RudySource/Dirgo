@@ -1,3 +1,9 @@
+
+
+<div align="center">
+
+<img src="docs/assets/dirgo-wordmark-rounded.png" width="620" alt="Dirgo — fast directory navigation for the terminal">
+
 <table width="100%">
   <tr>
     <td align="center">
@@ -9,10 +15,6 @@
     </td>
   </tr>
 </table>
-
-<div align="center">
-
-<img src="docs/assets/dirgo-wordmark-rounded.png" width="620" alt="Dirgo — fast directory navigation for the terminal">
 
 <h1>Dirgo</h1>
 
