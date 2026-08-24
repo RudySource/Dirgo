@@ -2,15 +2,15 @@
 
 This checklist is a publication gate, not a promise of future work. Do not create a Git tag, GitHub release, Homebrew formula, or crates.io publication until every applicable item is evidenced in the release record.
 
-Local audit status on 2026-08-24: implementation review has no open P0/P1 finding; default installation exposes only `dgo`; native Ubuntu, macOS, and Windows CI, actionlint, cargo-deny, shell/PTY evidence, and the non-publishing preflight pass. Working-tree/history secret scans pass, commit identity uses GitHub noreply, and the rendered demo contains no user-specific path or author metadata. Items remain unchecked below only when they require the tagged native release artifacts, installer drills, or publication credentials.
+Release status on 2026-08-24: implementation review has no open P0/P1 finding; default installation exposes only `dgo`; native Ubuntu 22.04, macOS, and Windows CI, actionlint, cargo-deny, shell/PTY evidence, and the non-publishing preflight pass. Git history and working-tree secret scans pass, commit identity uses GitHub noreply, and rendered assets contain no user-specific metadata. GitHub Release `v0.1.2` and the maintained `RudySource/homebrew-tap` formula are public. The only unavailable publication is crates.io, which requires an external registry credential.
 
 ## Code and package
 
 - [x] A clean Linux build passes on the declared MSRV (Rust 1.89); raising dependency versions must not silently raise MSRV without updating `Cargo.toml`, README, and CI together. Evidence: CI run `32674908733` on `1240cdf`.
 - [x] `scripts/release-preflight.sh --require-fish` passes on the release commit; it covers formatting, strict clippy, tests, release build, Criterion compilation, offline package assembly, completion syntax, PTY picker/terminal/shell gates, and a disposable benchmark smoke.
 - [x] `cargo build --release --bin dgo`, the feature-gated fixture build, and package verification pass locally; a default `cargo install` exposes only `dgo`, and `cargo publish --dry-run --locked` passes from a clean worktree.
-- [ ] The four binary targets have archives and SHA-256 checksums: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
-- [ ] Clean-machine install, upgrade, and rollback are exercised for each installer that is actually enabled. Do not claim a package manager that has no maintained owner or tap.
+- [x] The four binary targets have public archives and matching SHA-256 checksums: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`. Evidence: Release run `32677282624`; all four downloaded files pass independent `shasum -a 256 -c SHA256SUMS`.
+- [x] Public archives execute on macOS ARM64, macOS Intel through Rosetta, native Windows release runners, and clean Debian 12 amd64. The macOS archive lifecycle passed `0.1.1 → 0.1.2 → rollback 0.1.1 → restore 0.1.2`; the first maintained Homebrew formula installs and links `dirgo 0.1.2` from the remote tap. Homebrew upgrade is not applicable until a second formula version exists.
 
 ## Behaviour and compatibility
 
@@ -24,7 +24,7 @@ Local audit status on 2026-08-24: implementation review has no open P0/P1 findin
 - [x] `cargo deny check` passes and the dependency-policy CI job is green; Dependabot alert 1 is fixed by `lru 0.18.2`.
 - [x] `SECURITY.md`, `SUPPORT.md`, README installation instructions, version, changelog, and release-note source agree on 0.1.2. Published checksums remain tag-gated below.
 - [x] GitHub private vulnerability reporting, vulnerability alerts, Dependabot security updates, secret scanning, and push protection are enabled before publishing.
-- [ ] A tagged release includes concise release notes, known limitations, and the exact verification evidence.
+- [x] Tagged release `v0.1.2` includes concise release notes, known limitations, four native archives, and aggregate checksums. Superseded `v0.1.1` remains immutable and carries an explicit Linux compatibility warning.
 
 ## Release sequence
 
@@ -37,5 +37,5 @@ Run these steps in order. Stop at the first failed gate.
 5. Create and push only the matching annotated tag (`v0.1.2` for package version `0.1.2`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag; `v0.1.1` is retained as a superseded release whose Linux install drill exposed its glibc 2.39 requirement. Neither historical tag may be moved or reused.
 6. Download every release asset plus `SHA256SUMS`; verify hashes independently on macOS, Linux, and Windows.
 7. Exercise clean install, upgrade, and rollback with the downloaded archives. Record commands, host details, and results in the release notes.
-8. Substitute the real version and published checksums into `packaging/homebrew/dirgo.rb.template`; publish it only in a tap with a confirmed maintainer.
+8. Update `packaging/homebrew/dirgo.rb` with the real version and published checksums; publish it only in the maintained `RudySource/homebrew-tap` after the archive drills pass.
 9. Publish to crates.io only after the GitHub artifacts and documentation are final. Never reuse or move the Git tag after publication.

@@ -6,12 +6,12 @@ Reviewed state: complete working-tree release candidate against the baseline
 
 ## Executive summary
 
-**Release-candidate decision: PASS.** No open P0 or P1 security or correctness
-finding is known in the reviewed tree. Local preflight, crates.io dry-run, and
-remote macOS/Linux/Windows/dependency-policy CI pass; the single Dependabot alert is
-fixed. Public release remains gated only by the tag-built native artifacts,
-independent checksum verification, archive install drills, and final registry
-publication.
+**Product release decision: PASS.** No open P0 or P1 security or correctness
+finding is known in the reviewed tree. Local preflight and remote
+macOS/Linux/Windows/dependency-policy CI pass; the single Dependabot alert is
+fixed. GitHub Release `v0.1.2`, its four verified native archives, and the
+maintained Homebrew formula are public. crates.io publication remains an
+external credential operation rather than an unfinished repository task.
 
 | Severity | Found | Open |
 | --- | ---: | ---: |
@@ -230,6 +230,12 @@ Additional evidence includes:
 - 1M-directory PTY results of 55.180 ms first paint and 35.236 ms first useful
   result, within the 100/100 ms release budget;
 - rendered VHS demo inspected frame by frame.
+- release run `32677282624`: four locked native test/build jobs plus gated
+  checksum generation and GitHub publication;
+- independently downloaded `v0.1.2` checksums, native macOS ARM/Intel execution,
+  clean Debian 12 amd64 execution, and native Windows staged-binary execution;
+- remote `RudySource/homebrew-tap` install of `dirgo 0.1.2`, followed by linked
+  binary version/help checks and an archive upgrade/rollback drill.
 
 The tests are strong around the highest-risk boundaries. They do not replace a
 human screen-reader evaluation or clean-machine installer drills.
@@ -245,11 +251,10 @@ infer invariants. Searches for removed validation, escaping, schema, lock, and
 permission checks were therefore reviewed against the complete implementation;
 no unexplained removal remains.
 
-## Remaining publication gates
+## Remaining publication gate
 
-1. Tag exactly `v0.1.2`; download all four native archives and `SHA256SUMS`.
-2. Verify hashes and execute the available native archive install drills.
-3. Publish crates.io and real Homebrew metadata only after those artifacts pass.
+Publish to crates.io after authenticating this workstation with an authorized
+registry token. No token is stored in the repository or local environment.
 
 Any code, dependency, workflow, or release-document change after this review
 invalidates the PASS until the affected gates are rerun.
@@ -260,8 +265,8 @@ invalidates the PASS until the affected gates are rerun.
   dependency graph permits, without raising MSRV accidentally.
 - Expand native Windows coverage when parent-shell PowerShell/cmd integration is
   introduced; 0.1.2 intentionally ships archive CLI support without those wrappers.
-- Keep package-manager expansion maintainer-owned; never publish placeholder
-  taps, buckets, or checksums.
+- Keep package-manager expansion maintainer-owned; never publish unowned taps,
+  buckets, or invented checksums.
 
 ## Review methodology
 

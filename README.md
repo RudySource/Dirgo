@@ -39,6 +39,12 @@ The picker opens immediately and updates matches in the background as the query 
 
 ## Install
 
+With Homebrew:
+
+```bash
+brew install RudySource/tap/dirgo
+```
+
 Download the archive for your platform and `SHA256SUMS` from the [latest GitHub Release](https://github.com/RudySource/Dirgo/releases/latest). Verify the checksum before extracting:
 
 ```bash
