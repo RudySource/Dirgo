@@ -97,7 +97,7 @@ Current progress: the local release-candidate implementation is complete. CI run
 
 Exit gate: clean-machine install and upgrade/rollback drills pass, artifacts match checksums, documentation matches behavior, and there are no P0/P1 findings.
 
-## Remaining path to `v0.1.0`
+## Remaining path to `v0.1.1`
 
 These are publication operations, not missing product implementation:
 
@@ -106,16 +106,15 @@ These are publication operations, not missing product implementation:
 3. Verify branch protection, private security advisories, and repository release permissions.
 4. Run `cargo publish --dry-run --locked` and confirm the crates.io owner/name state.
 5. Complete the manual terminal and accessibility matrix on the built candidate.
-6. Create only tag `v0.1.0`; let the tag workflow build all four native archives and `SHA256SUMS`.
+6. Create only tag `v0.1.1`; let the tag workflow build all four native archives and `SHA256SUMS`. The immutable `v0.1.0` tag records a stopped Windows gate and has no release artifacts.
 7. Independently verify downloads and run clean install, upgrade, and rollback on macOS, Linux, and Windows.
 8. Publish the Homebrew formula and crates.io package only after their real URLs, owners, versions, and checksums exist.
 
-## Planned updates after `0.1.0`
+## Planned updates after `0.1.1`
 
 ### `0.1.x` — stabilization
 
-- Upgrade Ratatui when a compatible graph removes the unmaintained transitive `paste` crate; remove the explicit advisory exception.
-- Reduce duplicate `syn`, `unicode-width`, and `windows-sys` versions when possible without silently raising MSRV.
+- Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when possible without silently raising MSRV.
 - Convert the first manual Windows runtime matrix into repeatable native CI coverage.
 - Fix verified compatibility defects and improve diagnostics without changing the navigation contract or persistent schema unnecessarily.
 

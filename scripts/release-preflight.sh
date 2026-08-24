@@ -50,10 +50,11 @@ printf '%s\n' 'PACKAGE:default-install-surface:ok'
 
 package_files="$scratch_dir/package-files.txt"
 cargo package --allow-dirty --no-verify --offline --list > "$package_files"
+crate_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
 for required_file in \
   Cargo.toml CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md SECURITY.md SUPPORT.md \
   DIFFERENTIAL_REVIEW_REPORT.md docs/RELEASE_CHECKLIST.md docs/dirgo-demo.tape \
-  docs/assets/dirgo-demo.gif docs/releases/v0.1.0.md scripts/demo-setup.sh src/lib.rs src/main.rs; do
+  docs/assets/dirgo-demo.gif "docs/releases/$crate_version.md" scripts/demo-setup.sh src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2
     exit 1

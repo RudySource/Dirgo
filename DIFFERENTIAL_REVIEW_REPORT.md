@@ -16,7 +16,7 @@ publication.
 | Severity | Found | Open |
 | --- | ---: | ---: |
 | P0 critical | 0 | 0 |
-| P1 high | 5 | 0 |
+| P1 high | 6 | 0 |
 | P2 medium | 10 | 0 |
 | P3 low | 1 | 0 |
 
@@ -148,6 +148,15 @@ timed out and discarded an otherwise valid selection. Fullscreen cleanup now
 skips the redundant clear because leaving the alternate screen restores the
 original display; the real PTY picker and Zsh/Bash/Fish wrapper matrix pass.
 
+### R17 — Unix-only integration fixture blocked the Windows release (P1)
+
+The first tag correctly stopped before publication because `tests/cli.rs`
+imported Unix permissions APIs unconditionally. That shell-focused suite is now
+explicitly Unix-only, while a separate native Windows integration suite covers
+version execution, refresh, exact query output, and diagnostics. The failed
+`v0.1.0` tag is retained without a GitHub Release; the corrected release is
+versioned `0.1.1` rather than silently moving a public tag.
+
 ## Adversarial analysis
 
 - Generated wrappers quote command substitution and invoke `builtin cd --`;
@@ -199,7 +208,7 @@ Additional evidence includes:
 - cargo-deny 0.20 advisories, bans, licenses, and sources checks;
 - actionlint 1.7.12 on CI and release workflows;
 - gitleaks scans of the complete working tree and Git history: no leaks found;
-- macOS ARM64 and x86_64 release binaries executing `dgo 0.1.0`;
+- macOS ARM64 and x86_64 release binaries executing the matching Dirgo version;
 - 1M-directory PTY results of 55.180 ms first paint and 35.236 ms first useful
   result, within the 100/100 ms release budget;
 - rendered VHS demo inspected frame by frame.
@@ -221,7 +230,7 @@ no unexplained removal remains.
 
 ## Remaining publication gates
 
-1. Tag exactly `v0.1.0`; download all four native archives and `SHA256SUMS`.
+1. Tag exactly `v0.1.1`; download all four native archives and `SHA256SUMS`.
 2. Verify hashes and execute the available native archive install drills.
 3. Publish crates.io and real Homebrew metadata only after those artifacts pass.
 

@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,

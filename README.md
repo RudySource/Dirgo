@@ -18,7 +18,7 @@ $ dgo punk
 Unlike history-only jumpers, Dirgo indexes the filesystem and can find directories you have never visited. History then improves ranking without becoming a discovery requirement.
 
 > [!IMPORTANT]
-> Dirgo is under active development toward `0.1.0`. Implementation and local gates are complete through the performance/compatibility milestone; checksummed multi-platform artifacts and publication drills remain tracked in [ROADMAP.md](ROADMAP.md).
+> Dirgo `0.1.1` is the current release candidate. Implementation and local gates are complete through the performance/compatibility milestone; checksummed multi-platform artifacts and publication drills remain tracked in [ROADMAP.md](ROADMAP.md).
 
 ## What works now
 

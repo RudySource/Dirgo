@@ -2,6 +2,6 @@
 /.idea/
 /.vscode/
 .DS_Store
-/logo.png
+/logo*.png
 *.redb
 *.redb.tmp.*

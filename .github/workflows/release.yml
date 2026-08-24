@@ -100,4 +100,7 @@ jobs:
       - name: Publish immutable tag assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file docs/releases/v0.1.0.md --title "Dirgo $GITHUB_REF_NAME"
+        run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME#v}.md"
+          test -f "$notes_file"
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file "$notes_file" --title "Dirgo $GITHUB_REF_NAME"

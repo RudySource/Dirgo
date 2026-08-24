@@ -4,6 +4,13 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-24
+
+### Fixed
+
+- Kept the Unix shell integration suite Unix-only and added a native Windows CLI smoke suite, so the four-platform release gate compiles and exercises tests appropriate to each operating system.
+- Upgraded Ratatui/Crossterm and the transitive `lru` dependency to patched versions, removed the obsolete `paste` exception, and avoided a fullscreen teardown cursor-position timeout.
+
 ### Added
 
 - Initial Rust core with XDG configuration, redb index/state separation, parallel crawling, conservative resolution, bookmarks, history, project detection, generated shell wrappers, diagnostics, and tests.
@@ -27,7 +34,7 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 - macOS/Linux CI now verifies formatting, warnings-denied clippy, tests, release binaries, benchmark-harness smoke, and dependency policy.
 - Resumable, checkpointed fixture batches make the 1M interactive performance gate reproducible without adopting arbitrary existing or symlinked directories.
 - Cross-platform PTY coverage now exercises Zsh, Bash, and Fish on Linux in a deterministic UTF-8 locale.
-- Current cargo-deny policy validates advisories, licenses, sources, and bans; the transitive unmaintained `paste` advisory is explicitly documented rather than silently suppressed.
+- Current cargo-deny policy validates advisories, licenses, sources, and bans without advisory exceptions.
 - Tag-gated native release automation builds and tests four targets, packages documentation and licenses, verifies SHA-256 checksums, and publishes only after every matrix job succeeds.
 - Reproducible VHS source and a rendered terminal demo cover refresh, exact navigation, bookmarks, and ambiguous picker selection.
 - Shell command substitution now forces the picker to a stdout-safe fullscreen backend, preventing Crossterm's cursor-position request from prefixing the selected destination; all three real wrapper PTY gates exercise the regression.
@@ -39,7 +46,7 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 - CI and release actions are pinned to immutable revisions and tracked by weekly dependency updates with a seven-day cooldown.
 - Demo fixtures use a neutral public temp prefix so rendered assets do not expose a machine-specific macOS TMPDIR identifier.
 - Shareable benchmark reports omit the machine hostname and use a neutral `/tmp` fixture prefix.
-- The tag workflow publishes curated, privacy-aware `v0.1.0` release notes with installation, verification, and known limitations.
+- The tag workflow publishes version-matched, privacy-aware release notes with installation, verification, and known limitations.
 
 ### Changed
 
