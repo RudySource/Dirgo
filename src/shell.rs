@@ -7,6 +7,24 @@ pub enum Shell {
     Fish,
 }
 
+impl Shell {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Zsh => "zsh",
+            Self::Bash => "bash",
+            Self::Fish => "fish",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Zsh => "Zsh",
+            Self::Bash => "Bash",
+            Self::Fish => "Fish",
+        }
+    }
+}
+
 pub fn integration(shell: Shell) -> &'static str {
     match shell {
         Shell::Zsh => ZSH,
@@ -34,7 +52,7 @@ fi
 
 function dgo() {
   case "${1:-}" in
-    init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -70,7 +88,7 @@ fi
 
 dgo() {
   case "${1:-}" in
-    init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -107,7 +125,7 @@ end
 function dgo --description 'Go anywhere. Instantly.'
     if test (count $argv) -gt 0
         switch "$argv[1]"
-            case init completions refresh query explain bench bookmarks bookmark import doctor stats config support --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
+            case setup init completions refresh query explain bench bookmarks bookmark import doctor stats config support --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
                 command dgo $argv
                 return $status
         end
@@ -144,6 +162,7 @@ _dgo_bookmark_names() {
 _dgo() {
   local -a commands global_options
   commands=(
+    'setup:connect Dirgo to this shell safely'
     'init:print shell integration' 'completions:print shell completion script'
     'refresh:rebuild the directory index' 'query:resolve a directory query'
     'explain:show ranked candidates as JSON' 'bench:measure local work'
@@ -181,7 +200,7 @@ _dgo_complete() {
   local cur prev commands options
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands='init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
+  commands='setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
   options='--open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
   case "$prev" in
     init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish' -- "$cur") ); return ;;
@@ -199,7 +218,7 @@ const FISH_COMPLETIONS: &str = r#"function __dgo_bookmarks
     command dgo bookmarks 2>/dev/null | string replace -r '^@([^ ]+).*' '$1'
 end
 complete -c dgo -f
-complete -c dgo -n '__fish_use_subcommand' -a 'init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
+complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
 complete -c dgo -l open -d 'Open with the OS'
 complete -c dgo -l finder -d 'Open in file browser'
 complete -c dgo -l code -d 'Open in configured editor'

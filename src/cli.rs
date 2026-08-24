@@ -104,6 +104,8 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Connect Dirgo to your shell safely
+    Setup(SetupArgs),
     /// Print parent-shell integration for Zsh, Bash, or Fish
     Init {
         /// Shell whose integration script should be generated
@@ -177,6 +179,25 @@ pub enum Command {
     Support,
     #[command(name = "__resolve", hide = true)]
     Resolve(ResolveArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SetupArgs {
+    /// Shell to configure; detected from SHELL when omitted
+    #[arg(long, value_enum)]
+    pub shell: Option<Shell>,
+    /// Shell startup file to update instead of the detected default
+    #[arg(long, value_name = "FILE")]
+    pub rc: Option<PathBuf>,
+    /// Show the exact change without writing files
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply without an interactive confirmation
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Remove only the block previously managed by Dirgo
+    #[arg(long)]
+    pub remove: bool,
 }
 
 #[derive(Debug, Args)]

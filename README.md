@@ -55,32 +55,42 @@ Dirgo ships as one `dgo` binary. It has no runtime dependency on `fd`, `fzf`, `z
 
 ## Install
 
-### Homebrew
+### macOS and Linux
 
 ```bash
-brew install rudysource/tap/dirgo
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.sh | sh
 ```
 
-Load the wrapper for your shell:
+The installer detects your platform, verifies the release checksum, installs to `~/.local/bin`, then shows the exact shell change before asking for confirmation.
 
-| Shell | Add once to |
-| --- | --- |
-| Zsh | `~/.zshrc`: `eval "$(dgo init zsh)"` |
-| Bash | `~/.bashrc`: `eval "$(dgo init bash)"` |
-| Fish | `~/.config/fish/config.fish`: `dgo init fish \| source` |
+> [!TIP]
+> Prefer Homebrew? One paste does the same onboarding: `brew install rudysource/tap/dirgo && dgo setup`
 
-Open a new terminal, then verify the installation:
+### Windows
+
+```powershell
+irm https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1 | iex
+```
+
+The PowerShell installer verifies SHA-256 before copying `dgo.exe` and asks before changing your user `PATH`.
+
+> [!NOTE]
+> Windows currently includes the native CLI and picker, but not parent-shell navigation. A PowerShell wrapper is planned for a later release.
+
+### What setup changes
+
+`dgo setup` manages one clearly marked block in your Zsh, Bash, or Fish startup file. Before writing, it previews the target and content. On approval it creates a timestamped backup and replaces the file atomically.
 
 ```bash
-dgo doctor
-dgo refresh
+dgo setup --dry-run     # preview only
+dgo setup               # connect or repair
+dgo setup --remove      # remove only Dirgo's managed block
 ```
 
-> [!IMPORTANT]
-> The shell wrapper is required for navigation. A child process cannot change its parent shell's working directory. Add the matching initialization line only once.
+It never uses `sudo`, sends telemetry, or silently edits a shell file in a non-interactive session. Automation requires explicit consent with `dgo setup --yes`.
 
 <details>
-<summary><strong>Install a prebuilt archive</strong></summary>
+<summary><strong>Manual install and checksum verification</strong></summary>
 
 Download the archive for your platform and `SHA256SUMS` from the [latest GitHub Release](https://github.com/RudySource/Dirgo/releases/latest).
 
@@ -92,7 +102,9 @@ sha256sum --check SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching entry in `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`.
+On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching entry in `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`, then run `dgo setup` on Zsh, Bash, or Fish.
+
+Release assets also carry GitHub artifact attestations. With the GitHub CLI installed, verify provenance with `gh attestation verify <archive> --repo RudySource/Dirgo`.
 
 </details>
 
@@ -106,6 +118,7 @@ git clone https://github.com/RudySource/Dirgo.git
 cd Dirgo
 cargo build --release --locked
 install -m 755 target/release/dgo ~/.local/bin/dgo
+dgo setup
 ```
 
 </details>
@@ -149,6 +162,7 @@ Use `NO_COLOR=1` or `--no-color` without losing visual hierarchy. Use `--no-unic
 
 ```text
 dgo [QUERY]...                  resolve or choose a directory
+dgo setup                      connect or repair shell integration
 dgo refresh                    rebuild the filesystem index
 dgo query <QUERY> [--json]     resolve without navigating
 dgo explain <QUERY>            show candidates and score components
@@ -223,10 +237,10 @@ State growth is bounded: history retains at most 50,000 rows, each shell session
 
 | Platform | Distribution | Navigation support |
 | --- | --- | --- |
-| macOS Apple Silicon | Homebrew, GitHub archive | Zsh, Bash, Fish |
-| macOS Intel | GitHub archive | Zsh, Bash, Fish |
-| Linux x86_64 GNU | GitHub archive; glibc 2.35+ | Zsh, Bash, Fish |
-| Windows x86_64 MSVC | GitHub archive | CLI, TUI, query, bookmarks, and actions |
+| macOS Apple Silicon | One-command installer, Homebrew, archive | Zsh, Bash, Fish |
+| macOS Intel | One-command installer, archive | Zsh, Bash, Fish |
+| Linux x86_64 GNU | One-command installer, archive; glibc 2.35+ | Zsh, Bash, Fish |
+| Windows x86_64 MSVC | PowerShell installer, archive | CLI, TUI, query, bookmarks, and actions |
 
 > [!NOTE]
 > Windows does not yet include a PowerShell or cmd parent-shell wrapper. The CLI and picker work, but changing the parent shell directory requires dedicated integration.
@@ -286,14 +300,14 @@ GitHub currently identifies the repository as primarily **Rust**, with small **S
 | Matching | Nucleo | Fast, cancellable fuzzy matching |
 | Storage | redb | Transactional local index and persistent state |
 | Integration | Zsh, Bash, Fish | Parent-shell navigation and completions |
-| Packaging | Homebrew Ruby formula | Maintained macOS installation path |
+| Packaging | Shell, PowerShell, Homebrew | Verified, low-friction installation |
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `dgo` prints a path but does not change directory | Load the matching wrapper and confirm `type dgo` reports a function. |
-| A terminal starts slowly or closes | Run `command dgo doctor` and remove duplicate initialization lines. |
+| `dgo` prints a path but does not change directory | Run `dgo setup`, open a new terminal, and confirm `type dgo` reports a function. |
+| A terminal starts slowly or closes | Run `command dgo doctor`, then `command dgo setup --remove` if the managed block is involved. |
 | A new or moved directory is missing | Run `dgo refresh`. |
 | Configuration is invalid | Run `dgo config path`, repair the file, then run `dgo doctor`. |
 | A query is ambiguous in a pipe or CI | Use `dgo query <query> --json` and handle exit codes `3` and `4`. |

@@ -31,6 +31,8 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo build --release --bin dgo
+sh -n install/dirgo-installer.sh
+DGO_BIN="$repo_root/target/release/dgo" scripts/installer-smoke.sh
 cargo build --release --bin dgo-fixture --features benchmark-tools
 cargo bench --bench index_pipeline --no-run
 cargo package --allow-dirty --no-verify --offline
@@ -54,6 +56,7 @@ for required_file in \
   Cargo.toml CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md SECURITY.md SUPPORT.md \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
   docs/assets/dirgo-wordmark.png \
+  install/dirgo-installer.sh install/dirgo-installer.ps1 \
   scripts/demo-setup.sh src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2
