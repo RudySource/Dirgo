@@ -115,7 +115,7 @@ These are publication operations, not missing product implementation:
 ### `0.1.x` — stabilization
 
 - Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when possible without silently raising MSRV.
-- Convert the first manual Windows runtime matrix into repeatable native CI coverage.
+- Expand native Windows coverage when PowerShell/cmd parent-shell wrappers are introduced.
 - Fix verified compatibility defects and improve diagnostics without changing the navigation contract or persistent schema unnecessarily.
 
 ### `0.2` — portable distribution and recovery

@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -33,9 +33,12 @@ jobs:
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
       - run: cargo build --release --bin dgo
-      - run: cargo build --release --bin dgo-fixture --features benchmark-tools
-      - run: cargo bench --bench index_pipeline --no-run
+      - if: runner.os != 'Windows'
+        run: cargo build --release --bin dgo-fixture --features benchmark-tools
+      - if: runner.os != 'Windows'
+        run: cargo bench --bench index_pipeline --no-run
       - name: External benchmark smoke
+        if: runner.os != 'Windows'
         env:
           DGO_BIN: ${{ github.workspace }}/target/release/dgo
           DGO_FIXTURE_BIN: ${{ github.workspace }}/target/release/dgo-fixture

@@ -214,8 +214,7 @@ Additional evidence includes:
 - rendered VHS demo inspected frame by frame.
 
 The tests are strong around the highest-risk boundaries. They do not replace a
-native Windows runtime pass, screen-reader evaluation, remote repository policy
-inspection, or clean-machine installer drills.
+human screen-reader evaluation or clean-machine installer drills.
 
 ## History analysis
 
@@ -241,7 +240,8 @@ invalidates the PASS until the affected gates are rerun.
 
 - Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when the
   dependency graph permits, without raising MSRV accidentally.
-- Add native Windows PTY/runtime automation after the first manual Windows gate.
+- Expand native Windows coverage when parent-shell PowerShell/cmd integration is
+  introduced; 0.1.1 intentionally ships archive CLI support without those wrappers.
 - Keep package-manager expansion maintainer-owned; never publish placeholder
   taps, buckets, or checksums.
 
