@@ -4,6 +4,12 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Add a repository-hygiene gate that rejects tracked secrets, personal machine paths, private contact data, and internal agent artifacts before CI or release packaging.
+- Publish the completed 0.2 release status and separate optional future updates from current product requirements.
+- Update the security policy to reflect the supported public release line and private GitHub reporting flow.
+
 ## [0.2.0] - 2026-08-24
 
 ### Added

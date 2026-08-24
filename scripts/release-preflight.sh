@@ -27,6 +27,7 @@ cleanup() { rm -rf "$scratch_dir"; }
 trap cleanup EXIT
 
 printf '%s\n' '== Dirgo release preflight =='
+scripts/repository-hygiene.sh
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
@@ -57,14 +58,14 @@ for required_file in \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
   docs/assets/dirgo-wordmark.png \
   install/dirgo-installer.sh install/dirgo-installer.ps1 \
-  scripts/demo-setup.sh src/lib.rs src/main.rs; do
+  scripts/demo-setup.sh scripts/repository-hygiene.sh src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2
     exit 1
   fi
 done
-if grep -Eq '(^target/|\.redb$|\.env$|(^|/)id_rsa$|\.(pem|key)$)' "$package_files"; then
-  printf '%s\n' 'Release archive contains a forbidden build, database, or secret-like path' >&2
+if grep -Eq '(^target/|\.redb$|\.env$|(^|/)(AGENTS|CLAUDE|CONTEXT|ROADMAP)\.md$|(^|/)id_(rsa|ed25519)$|\.(pem|key|p12|pfx)$|(_AUDIT|_REVIEW_REPORT)\.md$)' "$package_files"; then
+  printf '%s\n' 'Release archive contains a forbidden build, private, agent, or secret-like path' >&2
   exit 1
 fi
 

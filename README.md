@@ -22,7 +22,8 @@
   <a href="#interactive-picker">Picker</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#privacy-and-security">Security</a>
+  <a href="#privacy-and-security">Security</a> ·
+  <a href="#release-status-and-roadmap">Roadmap</a>
 </p>
 
 </div>
@@ -301,6 +302,30 @@ GitHub currently identifies the repository as primarily **Rust**, with small **S
 | Storage | redb | Transactional local index and persistent state |
 | Integration | Zsh, Bash, Fish | Parent-shell navigation and completions |
 | Packaging | Shell, PowerShell, Homebrew | Verified, low-friction installation |
+
+## Release status and roadmap
+
+**Dirgo 0.2 is the completed product release.** The core navigation workflow,
+safe shell onboarding, native archives, Homebrew distribution, checksum
+verification, provenance attestations, recovery behavior, and cross-platform CI
+are shipped. The project is now in maintenance mode: future work is additive
+and does not block normal use of the current release.
+
+| Status | Release area | Outcome |
+| --- | --- | --- |
+| ✅ Shipped | Navigation core | Indexed discovery, fuzzy picker, bookmarks, recent history, project roots, and per-shell back/forward navigation |
+| ✅ Shipped | Safety and privacy | Local-only operation, escaped terminal output, bounded state, non-destructive recovery, and repository hygiene gates |
+| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, verified archives, and reversible Zsh/Bash/Fish setup |
+| ✅ Shipped | Release quality | Rust formatting and lint gates, unit/integration/PTY tests, dependency policy, checksums, and build attestations |
+| 🔭 Future | Windows navigation | PowerShell parent-shell wrapper so `dgo` can change the caller's directory |
+| 🔭 Future | More platforms | Linux ARM64 and musl builds, followed by additional package managers where demand justifies maintenance |
+| 🔭 Future | Index freshness | Optional incremental refresh or filesystem watching without adding telemetry or a required background service |
+| 🔭 Future | Distribution trust | Platform code signing/notarization and a stable-package publication flow for ecosystems beyond Homebrew |
+
+> [!NOTE]
+> Future items are update candidates, not missing release requirements. They
+> should enter development only with a defined user need, supported platform
+> matrix, regression tests, and a versioned release plan.
 
 ## Troubleshooting
 

@@ -29,6 +29,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y expect zsh fish
 
+      - name: Verify repository hygiene
+        shell: bash
+        run: scripts/repository-hygiene.sh
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test

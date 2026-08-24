@@ -2,13 +2,19 @@
 
 ## Supported versions
 
-Until the first public release, only the latest commit is supported.
+| Version | Supported |
+| --- | --- |
+| Latest `0.2.x` release | Yes |
+| `0.1.x` and older | No |
+
+Security fixes are released from the current `main` branch. Users should update
+to the latest published release before reporting a problem.
 
 ## Reporting a vulnerability
 
-Do not open a public issue for a vulnerability that could expose local paths, execute commands, corrupt persistent state, or escape configured filesystem scope. Use the repository's private security-advisory channel once its GitHub owner is configured.
+Do not open a public issue for a vulnerability that could expose local paths, execute commands, corrupt persistent state, or escape configured filesystem scope. Use GitHub's **Security → Report a vulnerability** flow for this repository.
 
-If no private channel is available, keep a minimal local reproduction and wait for maintainer contact details to be published; no email address is invented here.
+If the private reporting flow is unavailable, keep a minimal local reproduction and do not publish sensitive details in an issue, discussion, log, or screenshot.
 
 ## Security boundaries
 

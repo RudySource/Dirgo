@@ -5,3 +5,25 @@
 /logo*.png
 *.redb
 *.redb.tmp.*
+
+# Local credentials and machine-specific state
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.log
+
+# Local agent instructions and internal working material
+.agents/
+.codex/
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+ROADMAP.md
+*_AUDIT.md
+*_REVIEW_REPORT.md
