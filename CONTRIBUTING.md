@@ -33,7 +33,7 @@ The CI benchmark smoke uses only a disposable 100-directory fixture. It validate
 - `shell` emits thin wrappers; filesystem-derived paths are data, never shell code.
 - `app` coordinates commands and keeps stdout clean for shell/machine callers.
 
-New domain terms belong in `CONTEXT.md`. Add an ADR only for a hard-to-reverse, surprising trade-off.
+Keep user-facing terminology consistent across the CLI help, README, and code. Add an ADR only for a hard-to-reverse, surprising trade-off.
 
 ## Pull requests
 

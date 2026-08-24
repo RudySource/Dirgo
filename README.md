@@ -360,12 +360,9 @@ Rust 1.89 is the supported toolchain. A new contributor can run `cargo build`, `
 
 ## Project documents
 
-- [Baseline audit](docs/BASELINE_AUDIT.md)
-- [Domain language](CONTEXT.md)
-- [Release checklist](docs/RELEASE_CHECKLIST.md)
-- [Differential security and release review](DIFFERENTIAL_REVIEW_REPORT.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)
 
 ## License
