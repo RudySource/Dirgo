@@ -34,6 +34,13 @@ pub struct Cli {
     pub bookmarks: bool,
 
     #[arg(
+        long,
+        conflicts_with = "query",
+        help = "Update Dirgo using its detected installation source"
+    )]
+    pub update: bool,
+
+    #[arg(
         long = "forget",
         value_name = "NAME",
         conflicts_with = "query",
@@ -234,8 +241,21 @@ pub enum Command {
     },
     /// Show support and private vulnerability-reporting guidance
     Support,
+    /// Enable or disable new-version notifications
+    UpdateNotifications {
+        /// Whether version notifications should be shown
+        mode: UpdateNotificationMode,
+    },
+    #[command(name = "__check-update", hide = true)]
+    CheckUpdate,
     #[command(name = "__resolve", hide = true)]
     Resolve(ResolveArgs),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum UpdateNotificationMode {
+    On,
+    Off,
 }
 
 #[derive(Debug, Args)]

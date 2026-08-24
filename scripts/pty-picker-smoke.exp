@@ -67,8 +67,8 @@ expect {
         exit 6
     }
 }
-for {set index 0} {$index < 5} {incr index} {
-    send -- "\006"
+for {set index 0} {$index < 40} {incr index} {
+    send -- "\033\[1;2B"
 }
 send -- "\t\t"
 expect {
@@ -79,7 +79,20 @@ expect {
         exit 7
     }
 }
-send -- "\033\[B\r"
+for {set index 0} {$index < 40} {incr index} {
+    send -- "\033\[1;2A"
+}
+send -- "\t\t"
+expect {
+    -exact "content-00" {}
+    timeout {
+        puts stderr "Shift-Up did not scroll the directory preview back"
+        file delete -force $sandbox
+        exit 8
+    }
+}
+send -- "\r"
+expect -exact "$fixture_root/Archive/api"
 expect eof
 set result [wait]
 file delete -force $sandbox

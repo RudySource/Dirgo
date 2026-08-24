@@ -4,6 +4,22 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-25
+
+### Added
+
+- Add `dgo --update`, which selects Homebrew, Cargo, Scoop, or the verified release installer from the active executable path.
+- Check for stable GitHub releases in a detached daily background task and show a cached, non-blocking update notice on later navigation commands.
+- Add persistent `dgo update-notifications off|on` controls for the update notice.
+
+### Changed
+
+- Make Shift-Up/Shift-Down the primary visible directory-content scrolling controls while retaining Ctrl-B/Ctrl-F as alternatives.
+
+### Fixed
+
+- Exercise real shifted-arrow terminal sequences in the PTY release gate, including scrolling to both boundaries without moving the selected directory.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added

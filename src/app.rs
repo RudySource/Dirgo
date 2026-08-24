@@ -11,7 +11,10 @@ use clap::Parser;
 use crate::{
     DirgoError, Result,
     actions::Action,
-    cli::{BookmarkCommand, Cli, Command, ConfigCommand, ImportSource, QueryArgs, ResolveArgs},
+    cli::{
+        BookmarkCommand, Cli, Command, ConfigCommand, ImportSource, QueryArgs, ResolveArgs,
+        UpdateNotificationMode,
+    },
     config::Config,
     history_import,
     index::{self, IndexStore},
@@ -159,6 +162,18 @@ pub fn run() -> Result<i32> {
     }
 
     let paths = AppPaths::discover()?;
+    if cli.update {
+        return crate::update::run_update();
+    }
+    if matches!(&cli.command, Some(Command::CheckUpdate)) {
+        return crate::update::refresh_cache(&paths);
+    }
+    if let Some(Command::UpdateNotifications { mode }) = &cli.command {
+        return crate::update::set_notifications(
+            &paths,
+            matches!(mode, UpdateNotificationMode::On),
+        );
+    }
     if let Some(Command::Setup(args)) = &cli.command {
         return crate::setup::run(&paths, args, cli.no_color, cli.no_unicode);
     }
@@ -170,6 +185,20 @@ pub fn run() -> Result<i32> {
     ) {
         print_output_path(&paths.config_file);
         return Ok(0);
+    }
+    if matches!(
+        &cli.command,
+        None | Some(
+            Command::Query(_)
+                | Command::Root
+                | Command::Repo { .. }
+                | Command::Recent { .. }
+                | Command::Back
+                | Command::Forward
+                | Command::Resolve(_)
+        )
+    ) {
+        crate::update::notify_and_refresh_in_background(&paths);
     }
     let config_result = Config::load(&paths);
     if cli.doctor || matches!(&cli.command, Some(Command::Doctor)) {
@@ -230,7 +259,13 @@ pub fn run() -> Result<i32> {
         Some(Command::Config { command }) => config_command(&paths, &config, command),
         Some(Command::Support) => unreachable!("handled before storage access"),
         Some(Command::Resolve(args)) => shell_resolve(&paths, &config, args, requested_action),
-        Some(Command::Refresh | Command::Doctor | Command::Bookmarks) => {
+        Some(
+            Command::Refresh
+            | Command::Doctor
+            | Command::Bookmarks
+            | Command::UpdateNotifications { .. }
+            | Command::CheckUpdate,
+        ) => {
             unreachable!("handled above")
         }
         None => default_query(

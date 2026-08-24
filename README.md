@@ -186,8 +186,9 @@ The picker opens when a query is ambiguous or when you run `dgo` without a desti
 | `Home` / `End` or `PageUp` / `PageDown` | Move through long lists |
 | `Enter` | Go to the selected directory |
 | `Tab` | Toggle the directory preview |
-| `Ctrl-B` / `Ctrl-F` | Page backward or forward through the directory preview |
-| `Shift-↑` / `Shift-↓`, `Shift-Home` / `Shift-End`, `Shift-PageUp` / `Shift-PageDown` | Additional preview controls in terminals that preserve shifted navigation keys |
+| `Shift-↑` / `Shift-↓` | Scroll the directory contents without moving the selection |
+| `Shift-Home` / `Shift-End`, `Shift-PageUp` / `Shift-PageDown` | Jump or page through the directory contents |
+| `Ctrl-B` / `Ctrl-F` | Alternative page controls for the directory contents |
 | `Ctrl-R` | Rebuild the index atomically |
 | `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or launch the configured editor |
 | `Ctrl-U` | Clear the query |
@@ -216,9 +217,19 @@ dgo config path | show         inspect configuration
 dgo doctor                     diagnose the installation
 dgo stats                      show local index statistics
 dgo support                    show support and security guidance
+dgo --update                   install the latest stable release
+dgo update-notifications off   disable new-version notices
+dgo update-notifications on    enable new-version notices
 ```
 
 Run `dgo --help` or `dgo <command> --help` for the complete interface.
+
+Dirgo checks GitHub Releases in a detached background process at most once per
+day. A later invocation displays a short notice when a newer stable version is
+available, so directory navigation never waits for the network. `dgo --update`
+uses the detected installation source (Homebrew, Cargo, Scoop, or the verified
+release installer). The notification preference is persistent and does not
+disable manual updates.
 
 Action flags work on either side of the query, so both forms below are equivalent:
 

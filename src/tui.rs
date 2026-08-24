@@ -1207,7 +1207,11 @@ fn render_footer(
     if !compact {
         controls.push_str("   ^R refresh   Tab preview");
         if state.preview && area.width >= 88 && state.preview_max_scroll > 0 {
-            controls.push_str("   ^B/^F scroll");
+            if state.unicode {
+                controls.push_str("   ⇧↑/⇧↓ contents");
+            } else {
+                controls.push_str("   Shift+Up/Down contents");
+            }
         }
         controls.push_str("   Esc close");
     }
@@ -1333,10 +1337,10 @@ mod tests {
         assert!(!initial.contains("entry-39"));
         assert!(state.preview_max_scroll > 0);
 
-        for _ in 0..10 {
+        for _ in 0..50 {
             assert!(matches!(
                 handle_key(
-                    KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+                    KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT),
                     &mut state,
                     candidates.len(),
                     Availability::default(),
@@ -1351,6 +1355,17 @@ mod tests {
         let scrolled = terminal.backend().to_string();
         assert!(scrolled.contains("entry-39"));
         assert!(!scrolled.contains("entry-00"));
+
+        for _ in 0..50 {
+            handle_key(
+                KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT),
+                &mut state,
+                candidates.len(),
+                Availability::default(),
+            );
+        }
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.selected(), Some(0));
     }
 
     #[test]

@@ -14,5 +14,6 @@ pub mod shell;
 pub mod state;
 pub mod terminal;
 pub mod tui;
+pub mod update;
 
 pub use error::{DirgoError, Result};

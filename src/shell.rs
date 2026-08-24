@@ -52,7 +52,7 @@ fi
 
 function dgo() {
   case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -61,7 +61,7 @@ function dgo() {
   local argument
   for argument in "$@"; do
     case "$argument" in
-      --open|--finder|--code|--copy|--print)
+      --update|--open|--finder|--code|--copy|--print)
         command dgo "$@"
         return $?
         ;;
@@ -98,7 +98,7 @@ fi
 
 dgo() {
   case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -107,7 +107,7 @@ dgo() {
   local argument
   for argument in "$@"; do
     case "$argument" in
-      --open|--finder|--code|--copy|--print)
+      --update|--open|--finder|--code|--copy|--print)
         command dgo "$@"
         return $?
         ;;
@@ -145,7 +145,7 @@ end
 function dgo --description 'Go anywhere. Instantly.'
     if test (count $argv) -gt 0
         switch "$argv[1]"
-            case setup init completions refresh query explain bench bookmarks bookmark import doctor stats config support --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
+            case setup init completions refresh query explain bench bookmarks bookmark import doctor stats config support update-notifications --update --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
                 command dgo $argv
                 return $status
         end
@@ -153,7 +153,7 @@ function dgo --description 'Go anywhere. Instantly.'
 
     for argument in $argv
         switch "$argument"
-            case --open --finder --code --copy --print
+            case --update --open --finder --code --copy --print
                 command dgo $argv
                 return $status
         end
@@ -199,11 +199,13 @@ _dgo() {
     'forward:go forward in session history' 'import:import navigation history'
     'bookmarks:list bookmarks' 'bookmark:manage bookmarks' 'doctor:inspect configuration'
     'stats:show local statistics' 'config:inspect configuration' 'support:show support guidance'
+    'update-notifications:enable or disable update notices'
   )
   global_options=(
     '--open[open with the OS]' '--finder[open in file browser]' '--code[open in configured editor]'
     '--copy[copy path]' '--print[print path]' '--no-color[disable color]' '--no-unicode[use ASCII]'
-    '--verbose[show diagnostics]' '--refresh[compatibility alias]' '--doctor[compatibility alias]'
+    '--verbose[show diagnostics]' '--update[install the latest Dirgo release]'
+    '--refresh[compatibility alias]' '--doctor[compatibility alias]'
     '--bookmarks[compatibility alias]' '--forget=[remove bookmark]:bookmark:_dgo_bookmark_names'
   )
   _arguments -C $global_options '1:command:->command' '*:query:->query'
@@ -213,6 +215,7 @@ _dgo() {
       case $words[2] in
         bookmark) _arguments '1:operation:(add remove rename)' '2:bookmark:_dgo_bookmark_names' ;;
         config) _arguments '1:operation:(path show)' ;;
+        update-notifications) _arguments '1:mode:(on off)' ;;
         import) _arguments '1:source:(zoxide)' ;;
         init|completions) _arguments '1:shell:(zsh bash fish)' ;;
       esac ;;
@@ -228,12 +231,13 @@ _dgo_complete() {
   local cur prev commands options
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands='setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
-  options='--open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
+  commands='setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support update-notifications'
+  options='--update --open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
   case "$prev" in
     init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish' -- "$cur") ); return ;;
     import) COMPREPLY=( $(compgen -W 'zoxide' -- "$cur") ); return ;;
     config) COMPREPLY=( $(compgen -W 'path show' -- "$cur") ); return ;;
+    update-notifications) COMPREPLY=( $(compgen -W 'on off' -- "$cur") ); return ;;
     bookmark) COMPREPLY=( $(compgen -W 'add remove rename' -- "$cur") ); return ;;
     remove|rename|--forget) COMPREPLY=( $(compgen -W "$(_dgo_bookmarks)" -- "$cur") ); return ;;
   esac
@@ -246,7 +250,8 @@ const FISH_COMPLETIONS: &str = r#"function __dgo_bookmarks
     command dgo bookmarks 2>/dev/null | string replace -r '^@([^ ]+).*' '$1'
 end
 complete -c dgo -f
-complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support'
+complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support update-notifications'
+complete -c dgo -l update -d 'Install the latest Dirgo release'
 complete -c dgo -l open -d 'Open with the OS'
 complete -c dgo -l finder -d 'Open in file browser'
 complete -c dgo -l code -d 'Open in configured editor'
@@ -259,6 +264,7 @@ complete -c dgo -l forget -a '(__dgo_bookmarks)' -d 'Remove bookmark'
 complete -c dgo -n '__fish_seen_subcommand_from init completions' -a 'zsh bash fish'
 complete -c dgo -n '__fish_seen_subcommand_from import' -a zoxide
 complete -c dgo -n '__fish_seen_subcommand_from config' -a 'path show'
+complete -c dgo -n '__fish_seen_subcommand_from update-notifications' -a 'on off'
 complete -c dgo -n '__fish_seen_subcommand_from bookmark' -a 'add remove rename'
 complete -c dgo -n '__fish_seen_subcommand_from remove rename' -a '(__dgo_bookmarks)'
 "#;
@@ -274,8 +280,8 @@ mod tests {
             assert!(script.contains("builtin cd"));
             assert!(script.contains("command dgo __resolve"));
             assert!(
-                script.contains("--open|--finder|--code|--copy|--print")
-                    || script.contains("case --open --finder --code --copy --print")
+                script.contains("--update|--open|--finder|--code|--copy|--print")
+                    || script.contains("case --update --open --finder --code --copy --print")
             );
             assert!(!script.contains("eval $destination"));
         }

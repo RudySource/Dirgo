@@ -43,9 +43,52 @@ impl Fixture {
         command
             .env("XDG_CONFIG_HOME", self.temp.path().join("config"))
             .env("XDG_CACHE_HOME", self.temp.path().join("cache"))
-            .env("XDG_STATE_HOME", self.temp.path().join("state"));
+            .env("XDG_STATE_HOME", self.temp.path().join("state"))
+            .env("DGO_DISABLE_UPDATE_CHECK", "1");
         command
     }
+}
+
+#[test]
+fn update_notifications_are_visible_and_can_be_disabled_persistently() {
+    let fixture = Fixture::new();
+    let cache_dir = fixture.temp.path().join("cache/dirgo");
+    fs::create_dir_all(&cache_dir).expect("update cache dir");
+    fs::write(
+        cache_dir.join("update.json"),
+        r#"{"checked_at":1,"latest_version":"9.9.9"}"#,
+    )
+    .expect("update cache");
+    fs::write(cache_dir.join("update-check"), u64::MAX.to_string()).expect("fresh update check");
+
+    fixture
+        .command()
+        .env_remove("DGO_DISABLE_UPDATE_CHECK")
+        .args(["query", "punk"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Dirgo 9.9.9 is available"));
+
+    fixture
+        .command()
+        .args(["update-notifications", "off"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("disabled"));
+    fixture
+        .command()
+        .env_remove("DGO_DISABLE_UPDATE_CHECK")
+        .args(["query", "punk"])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+
+    fixture
+        .command()
+        .args(["update-notifications", "on"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enabled"));
 }
 
 fn toml_string(path: &Path) -> String {
@@ -108,7 +151,7 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support")
+            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support update-notifications")
                 .and(predicate::str::contains("_dgo_bookmarks")),
         );
 }

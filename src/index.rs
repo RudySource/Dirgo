@@ -540,6 +540,9 @@ mod tests {
             config_file: temp.path().join("config.toml"),
             index_file: cache_dir.join("index.redb"),
             state_file: state_dir.join("state.redb"),
+            update_cache_file: cache_dir.join("update.json"),
+            update_check_file: cache_dir.join("update-check"),
+            update_notice_disabled_file: state_dir.join("update-notifications-disabled"),
             cache_dir,
             state_dir,
         }
