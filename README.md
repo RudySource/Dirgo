@@ -1,57 +1,88 @@
 <div align="center">
 
-# Dirgo
+<img src="docs/assets/dirgo-wordmark.png" width="560" alt="Dirgo — fast directory navigation for the terminal">
 
-### Go anywhere. Instantly.
+<h1>Dirgo</h1>
 
-A fast, fuzzy directory navigator for your terminal.
+<p><strong>Go anywhere. Instantly.</strong></p>
+
+<p>A fast, local-first directory navigator with fuzzy search and a responsive terminal picker.</p>
 
 <p>
-  <a href="https://github.com/RudySource/Dirgo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/RudySource/Dirgo/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/RudySource/Dirgo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/RudySource/Dirgo?display_name=tag"></a>
-  <a href="LICENSE-MIT"><img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a>
+  <a href="https://github.com/RudySource/Dirgo/actions/workflows/ci.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/RudySource/Dirgo/ci.yml?branch=main&style=flat-square&label=build&labelColor=071b3a&color=20bf55"></a>
+  <a href="https://github.com/RudySource/Dirgo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/RudySource/Dirgo?style=flat-square&label=release&labelColor=071b3a&color=20bf55"></a>
+  <a href="https://github.com/RudySource/Dirgo/releases"><img alt="Release downloads" src="https://img.shields.io/github/downloads/RudySource/Dirgo/total?style=flat-square&label=downloads&labelColor=071b3a&color=20bf55"></a>
+  <a href="https://www.rust-lang.org"><img alt="Rust 1.89 or newer" src="https://img.shields.io/badge/Rust-1.89%2B-20bf55?style=flat-square&logo=rust&logoColor=white&labelColor=071b3a"></a>
+  <a href="LICENSE-MIT"><img alt="MIT or Apache 2.0 license" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-20bf55?style=flat-square&labelColor=071b3a"></a>
+</p>
+
+<p>
+  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#interactive-picker">Picker</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#privacy-and-security">Security</a>
 </p>
 
 </div>
 
-![Dirgo terminal demo](docs/assets/dirgo-demo.gif)
+Dirgo finds directories by intent, not by memory. It indexes the filesystem so you can jump to projects you have never visited, then uses local history to improve ranking over time.
 
-```console
-$ dgo punk
-~/Developer/Projects/Punk
-```
+| ⚡ **55 ms** | 🗂️ **1M directories** | 🔒 **Zero telemetry** | 🐚 **Zsh · Bash · Fish** |
+| :---: | :---: | :---: | :---: |
+| First picker paint¹ | Tested index size | Local data only | Native wrappers |
 
-Unlike history-only jumpers, Dirgo indexes the filesystem and can find directories you have never visited. History then improves ranking without becoming a discovery requirement.
+<p align="center">
+  <img src="docs/assets/dirgo-demo.gif" width="860" alt="Dirgo terminal demo showing fuzzy directory search and navigation">
+</p>
 
-> [!IMPORTANT]
-> Dirgo `0.1.3` hardens terminal rendering, bounds persistent navigation state, and keeps diagnostics available when configuration is broken. Linux releases continue to be built and gated against glibc 2.35; the incompatible `0.1.1` archive remains superseded.
+<p align="center"><sub>Type a fragment. See live matches. Press Enter. You are there.</sub></p>
 
-## What works now
+> [!TIP]
+> Unlike history-only jumpers, Dirgo can discover a directory before you have visited it. Existing paths such as `..`, `./src`, `~/Projects`, and `-` still use the shell's direct fast path.
 
-- one Rust binary named `dgo`;
-- parallel filesystem indexing with `ignore`, Git ignore support, configurable roots, and excludes;
-- crash-safe index publication and a single-refresh lock;
-- separate redb databases for disposable index data and persistent user state;
-- direct paths, exact bookmarks, unique exact basenames, smart-case fuzzy candidates, and conservative ambiguity handling;
-- configurable frequency, recency, proximity, bookmark, and project ranking signals with per-candidate score components in JSON output;
-- bookmarks, visits, project-root detection, repository search, recent directories, and session back/forward state;
-- generated Zsh, Bash, and Fish wrappers with a no-process direct-path fast path;
-- responsive Ratatui picker with live Unicode query editing, background Nucleo matching, inline/fullscreen fallback, keyboard selection, lazy debounced directory preview, terminal restoration, and non-TTY fallback;
-- safe OS open, clipboard, and editor actions without shell interpolation;
-- JSON query output, config inspection, doctor, stats, and state-independent Zsh/Bash/Fish completions with lazy bookmark suggestions;
-- no telemetry, analytics, network calls, `fd`, `fzf`, `zoxide`, or `eza` dependency at runtime.
+## Why Dirgo
 
-The picker opens immediately and updates matches in the background as the query changes. For large indexes it decodes and injects records on a cancellable worker, while a compact collision-safe lookup preserves unique exact-basename navigation without scanning the whole index. Its preview reads at most 20 top-level entries on a separate worker after the selection settles. `Ctrl-R` closes the picker, rebuilds the index atomically, and reports the result.
+| | Capability | What it means for you |
+| --- | --- | --- |
+| **Discover** | Filesystem index | Find new and existing directories without remembering full paths. |
+| **Decide safely** | Conservative resolution | Ambiguous names open the picker instead of silently choosing the wrong project. |
+| **Stay fast** | Rust + background matching | The UI opens immediately while candidates stream in. |
+| **Keep control** | Local-first storage | No account, cloud service, telemetry, or network request during normal use. |
+
+Dirgo ships as one `dgo` binary. It has no runtime dependency on `fd`, `fzf`, `zoxide`, or `eza`.
 
 ## Install
 
-With Homebrew:
+### Homebrew
 
 ```bash
-brew install RudySource/tap/dirgo
+brew install rudysource/tap/dirgo
 ```
 
-Download the archive for your platform and `SHA256SUMS` from the [latest GitHub Release](https://github.com/RudySource/Dirgo/releases/latest). Verify the checksum before extracting:
+Load the wrapper for your shell:
+
+| Shell | Add once to |
+| --- | --- |
+| Zsh | `~/.zshrc`: `eval "$(dgo init zsh)"` |
+| Bash | `~/.bashrc`: `eval "$(dgo init bash)"` |
+| Fish | `~/.config/fish/config.fish`: `dgo init fish \| source` |
+
+Open a new terminal, then verify the installation:
+
+```bash
+dgo doctor
+dgo refresh
+```
+
+> [!IMPORTANT]
+> The shell wrapper is required for navigation. A child process cannot change its parent shell's working directory. Add the matching initialization line only once.
+
+<details>
+<summary><strong>Install a prebuilt archive</strong></summary>
+
+Download the archive for your platform and `SHA256SUMS` from the [latest GitHub Release](https://github.com/RudySource/Dirgo/releases/latest).
 
 ```bash
 # Linux
@@ -61,140 +92,99 @@ sha256sum --check SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`.
+On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching entry in `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`.
 
-To build from source instead, Rust 1.89 or newer is required. This is the actual minimum supported by the locked dependency graph and is verified by the Linux clean-build gate.
+</details>
+
+<details>
+<summary><strong>Build from source</strong></summary>
+
+Rust 1.89 or newer is required.
 
 ```bash
-cargo build --release
+git clone https://github.com/RudySource/Dirgo.git
+cd Dirgo
+cargo build --release --locked
 install -m 755 target/release/dgo ~/.local/bin/dgo
 ```
 
-Load the wrapper for your shell:
+</details>
 
-```zsh
-eval "$(dgo init zsh)"
-```
+## Quick start
 
 ```bash
-eval "$(dgo init bash)"
+dgo refresh       # index your configured roots
+dgo punk          # jump by directory name
+dgo               # browse everything
+dgo . api         # search only below the current directory
+dgo ? api         # always ask when names collide
+
+dgo +work         # bookmark the current directory
+dgo @work         # jump to the bookmark
+dgo repo punk     # search project roots
+dgo recent        # browse Dirgo history
+dgo back          # move back in this shell session
 ```
 
-```fish
-dgo init fish | source
-```
-
-These commands enable Dirgo in the current shell. Once verified, add the matching `init` line to `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`. Add it only once; duplicate initialization needlessly slows every new terminal.
-
-Install matching command completion after the wrapper. Generating completion text never opens or writes Dirgo state; bookmark-name suggestions are read lazily only while completing bookmark arguments.
-
-```zsh
-source <(dgo completions zsh)
-```
-
-```bash
-source <(dgo completions bash)
-```
-
-```fish
-dgo completions fish | source
-```
-
-The wrapper is essential: a child process cannot change its parent shell's working directory. Existing paths such as `..`, `./src`, `~/Projects`, and `-` are handled directly by the shell builtin without starting the Rust binary.
-
-## 30-second start
-
-```bash
-dgo refresh              # build the index explicitly
-dgo punk                 # unique exact directory name
-dgo                      # choose from the index
-dgo . api                # restrict candidates to the current tree
-dgo ? api                # always ask when names collide
-dgo +work                # bookmark the current directory
-dgo @work                # navigate to it
-dgo root                 # nearest project root
-dgo repo punk            # indexed project roots only
-dgo recent               # Dirgo navigation history
-dgo back                 # per-shell navigation session
-dgo --open punk          # open in the OS file browser
-dgo --code punk          # open in the configured editor
-dgo --copy punk          # copy the selected path
-dgo --print punk         # print without navigating
-dgo --no-color           # preserve hierarchy without ANSI color
-dgo --no-unicode         # use ASCII-only picker symbols
-```
-
-On the first search, a missing index is built automatically. `dgo refresh` remains useful after filesystem changes.
+The first search builds a missing index automatically. Run `dgo refresh` whenever you want to pick up filesystem changes immediately.
 
 ## Interactive picker
 
-Dirgo opens the picker when a query is ambiguous or when `dgo` is invoked without a destination. Typing filters immediately; paths and ranking metadata stay subordinate to the selected destination.
+The picker opens when a query is ambiguous or when you run `dgo` without a destination. Typing filters results immediately; preview work stays off the input path.
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓`, `Ctrl-K` / `Ctrl-J` | Move the selection |
-| `Home` / `End`, `PageUp` / `PageDown` | Move through long result sets |
+| `↑` / `↓` or `Ctrl-K` / `Ctrl-J` | Move the selection |
+| `Home` / `End` or `PageUp` / `PageDown` | Move through long lists |
 | `Enter` | Go to the selected directory |
 | `Tab` | Toggle the directory preview |
 | `Ctrl-R` | Rebuild the index atomically |
-| `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or open in the configured editor when available |
+| `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or launch the configured editor |
 | `Ctrl-U` | Clear the query |
-| `Esc` / `Ctrl-C` | Close without changing directory |
+| `Esc` / `Ctrl-C` | Close without navigating |
 
-`NO_COLOR` or `--no-color` removes ANSI color while preserving hierarchy. `--no-unicode` uses ASCII symbols. `TERM=dumb` uses a plain numbered selector; redirected input cannot choose interactively and returns exit code `4` after listing safe, escaped candidates on stderr.
-
-## Resolution safety
-
-Dirgo automatically resolves only:
-
-1. an existing explicit path;
-2. an exact bookmark;
-3. a unique exact basename.
-4. a basename prefix backed by at least five visits when two or more prefix candidates exist and the leader clears both a 1,000-point and 30% score margin.
-
-Fuzzy typos, duplicate exact names, close scores, stale paths, short prefixes, and forced `?` queries always require selection. This is deliberate: opening a picker once is safer than silently changing to the wrong project. Ranked-prefix responses expose their measured confidence and source in JSON.
+Use `NO_COLOR=1` or `--no-color` without losing visual hierarchy. Use `--no-unicode` for ASCII-only symbols. `TERM=dumb` activates the plain numbered selector.
 
 ## Commands
 
 ```text
 dgo [QUERY]...                  resolve or choose a directory
-dgo init <zsh|bash|fish>        print shell integration
 dgo refresh                    rebuild the filesystem index
-dgo query <QUERY> [--json]     machine-readable resolution
-dgo explain <QUERY>            inspect ranked candidates and score components
-dgo bench [--query TEXT]       measure local context, picker, and fuzzy-search work
-dgo root                       find the nearest project root
-dgo repo [QUERY]               choose among project roots
-dgo recent [QUERY]             choose from Dirgo history
-dgo back | forward             navigate the current shell session
+dgo query <QUERY> [--json]     resolve without navigating
+dgo explain <QUERY>            show candidates and score components
+dgo root                       print the nearest project root
+dgo repo [QUERY]               search indexed project roots
+dgo recent [QUERY]             search Dirgo navigation history
+dgo back | forward             navigate this shell session
 dgo bookmarks                  list bookmarks
-dgo bookmark add NAME          create a bookmark
-dgo bookmark remove NAME       remove a bookmark
+dgo bookmark add NAME          create or repair a bookmark
 dgo bookmark rename OLD NEW    rename a bookmark
-dgo import zoxide              explicitly import local zoxide scores
+dgo bookmark remove NAME       remove a bookmark
+dgo import zoxide              import validated local zoxide scores
 dgo config path | show         inspect configuration
-dgo doctor                     check local health
-dgo stats                      show local-only statistics
-dgo support                    show support and security-reporting guidance
+dgo doctor                     diagnose the installation
+dgo stats                      show local index statistics
+dgo support                    show support and security guidance
 ```
 
-If a bookmark target was deleted or moved, Dirgo reports both repair commands. Re-running `dgo bookmark add NAME --path NEW_DIRECTORY` updates the bookmark in place; `dgo bookmark remove NAME` removes it. Back/forward navigation automatically skips deleted session entries.
+Run `dgo --help` or `dgo <command> --help` for the complete interface.
 
-`dgo import zoxide` is optional and explicit. It invokes `zoxide query --list --score` directly without a shell, validates the complete output before writing, accepts only finite bounded scores and existing absolute directories, and merges with `max(existing visits, imported score)`. Imported rows receive no synthetic recency, and repeating the command is idempotent. Zoxide is never required for normal Dirgo operation.
+### Resolution safety
 
-If a redb file is invalid, Dirgo preserves it beside the original as a timestamped `.corrupt.<timestamp>` file. The disposable index is then rebuilt; state starts empty only after its preserved backup is written. A newer unknown persistent-state schema is never overwritten. A newer disposable-index schema requires an explicit `dgo refresh` before replacement. `dgo doctor` also warns when the active shell startup file exceeds 1 MiB, a common cause of slow or unstable terminal startup.
+Dirgo navigates automatically only when it has an existing explicit path, an exact bookmark, a unique exact basename, or a strongly dominant visited prefix. Fuzzy typos, duplicate names, close scores, stale paths, and forced `?` queries require selection.
 
-Compatibility forms retained from the original prototype documentation include `--refresh`, `-r`, `--doctor`, `--bookmarks`, `--forget NAME`, `+name`, and `@name`.
+This bias is deliberate: one picker is cheaper than silently changing to the wrong project.
 
 ## Configuration
 
-Dirgo follows XDG environment variables and reads:
+Dirgo follows the XDG base-directory convention and reads:
 
 ```text
 ${XDG_CONFIG_HOME:-~/.config}/dirgo/config.toml
 ```
 
-Example:
+<details>
+<summary><strong>Complete configuration example</strong></summary>
 
 ```toml
 schema_version = 1
@@ -221,48 +211,29 @@ height_percent = 70
 editor = "auto"
 ```
 
-`actions.editor` accepts one executable name or path, not a shell command line. In the picker, supported actions are shown in the footer and use `Ctrl-O`, `Ctrl-Y`, and `Ctrl-E`.
+`actions.editor` accepts one executable name or path, never a shell command line.
 
-The disposable index is stored below `XDG_CACHE_HOME`; bookmarks, visits, and sessions are stored separately below `XDG_STATE_HOME`.
+</details>
 
-When a Dirgo upgrade changes the disposable index format, the next use rebuilds that index atomically. Persistent bookmarks, visit history, and sessions are not discarded.
+The disposable index lives below `XDG_CACHE_HOME`. Bookmarks, visits, and navigation sessions live separately below `XDG_STATE_HOME`, so rebuilding the index never discards user state.
 
-Navigation history is bounded to 50,000 rows and pruned in batches by recency and visit strength. Each shell session keeps its latest 256 navigation entries, and abandoned session records are bounded as well. Visit increments and bookmark collision checks use single write transactions, so concurrent invocations cannot silently lose updates. This prevents normal daily use from growing state indefinitely.
+State growth is bounded: history retains at most 50,000 rows, each shell session keeps its latest 256 transitions, and abandoned sessions are pruned in batches.
 
 ## Platform support
 
-| Platform | Distribution | Shell navigation |
+| Platform | Distribution | Navigation support |
 | --- | --- | --- |
-| macOS Apple Silicon | GitHub archive, Homebrew | Zsh, Bash, Fish |
+| macOS Apple Silicon | Homebrew, GitHub archive | Zsh, Bash, Fish |
 | macOS Intel | GitHub archive | Zsh, Bash, Fish |
-| Linux x86_64 GNU | GitHub archive, glibc ≤ 2.35 gate | Zsh, Bash, Fish |
-| Windows x86_64 MSVC | GitHub archive | CLI, TUI, query and actions; no PowerShell/cmd parent-shell wrapper yet |
+| Linux x86_64 GNU | GitHub archive; glibc 2.35+ | Zsh, Bash, Fish |
+| Windows x86_64 MSVC | GitHub archive | CLI, TUI, query, bookmarks, and actions |
 
-Windows users can run `dgo query <name>`, the picker, bookmarks, indexing, diagnostics, and actions directly. Changing a parent PowerShell or cmd directory requires a dedicated wrapper, so Dirgo does not claim that integration in `0.1.x`.
-
-## Machine-readable contract
-
-```bash
-dgo query punk --json
-```
-
-Unresolved JSON responses include a `score_breakdown` for every candidate so ranking decisions can be inspected without guessing at hidden weights.
-
-Resolved paths are written to stdout without decoration. Diagnostics and selector UI use stderr. Exit codes currently used by the resolver are `0` success, `3` no match, and `4` ambiguous/cancelled; Clap uses `2` for invalid arguments.
-
-UTF-8 paths with spaces, quotes, Unicode, brackets, emoji, and leading dashes are supported. Paths containing a newline or non-UTF-8 Unix bytes are intentionally rejected at the shell boundary because its text command-substitution protocol cannot transport them safely. NUL is not valid in paths. A direct existing path handled by the shell wrapper does not cross this protocol.
-
-## Privacy and security
-
-Dirgo works entirely locally. It contains no telemetry or analytics and makes no network request during normal use. The index contains local filesystem paths, so protect the XDG cache/state directories as you would other local application data.
-
-Filesystem paths are never interpolated into shell commands or passed through `eval`. See [SECURITY.md](SECURITY.md) for reporting guidance.
-
-Human-facing terminal output escapes control characters and bidirectional overrides from untrusted filenames. The original path remains unchanged for selection and machine-readable JSON/stdout contracts.
+> [!NOTE]
+> Windows does not yet include a PowerShell or cmd parent-shell wrapper. The CLI and picker work, but changing the parent shell directory requires dedicated integration.
 
 ## Performance
 
-The architecture keeps direct paths in the shell and performs no `chpwd` index scan. On the current Apple Silicon macOS host (Darwin 25.5.0, Rust 1.89.0, optimized `dgo 0.1.0`), a real PTY probe produced these three-sample results from an already-built isolated index:
+Dirgo keeps direct paths in the shell and streams large indexes into the matcher. On an Apple Silicon macOS host, an optimized release build produced the following three-sample PTY results:
 
 | Indexed directories | First picker paint | First useful result |
 | ---: | ---: | ---: |
@@ -270,103 +241,85 @@ The architecture keeps direct paths in the shell and performs no `chpwd` index s
 | 500,000 | 53.529 ms | 35.209 ms |
 | 1,000,000 | 55.180 ms | 35.236 ms |
 
-The release budget is 100 ms for each metric at 1M directories. These are local measurements, not a promise that every machine will produce identical timings. The probe enters an initial query in a real pseudo-terminal and observes explicit first-paint and first-result markers emitted by the release binary.
+¹ These are reproducible local measurements, not universal latency guarantees. The 1M-directory release budget is 100 ms for both metrics.
 
-Build the public binary and the feature-gated developer fixture tool, then run the external harness for each dataset size. The fixture tool is not installed by a normal `cargo install dirgo`. The harness creates isolated XDG configuration and state, refuses to overwrite an existing fixture, records OS/Rust/binary metadata, measures one cold index build, and then measures warm CLI work. The generated fixture contains exactly the requested number of child directories (the indexed root itself is additional).
-
-```bash
-cargo build --release --bin dgo
-cargo build --release --bin dgo-fixture --features benchmark-tools
-scripts/benchmark-cli.sh --directories 10000
-scripts/benchmark-cli.sh --directories 100000
-scripts/benchmark-cli.sh --directories 500000
-scripts/benchmark-cli.sh --directories 1000000
-```
-
-Pass `--report /absolute/new-file.txt` to retain one run's stdout evidence. The harness refuses to overwrite either fixtures or reports.
-
-For profiler-driven index crawl measurements, Criterion uses the same deterministic fixture layout. Set `DIRGO_BENCH_DIRECTORIES` to one of the four sizes; optionally set `DIRGO_BENCH_FIXTURE` to a pre-created fixture to avoid including fixture creation in the run.
+Run a lightweight benchmark against your own index:
 
 ```bash
-DIRGO_BENCH_DIRECTORIES=10000 cargo bench --bench index_pipeline
+dgo bench --query punk --samples 5
 ```
 
-The warm picker latency smoke can be reproduced locally with:
+## Privacy and security
+
+- No telemetry, analytics, account, cloud sync, or network call during normal use.
+- Paths cross the shell boundary as data and are never interpolated into executable shell text.
+- Human-facing output escapes terminal controls and bidirectional overrides from untrusted filenames.
+- Index publication is atomic; corrupted local data is preserved under a timestamped backup name before recovery.
+- Unknown persistent-state schemas are never overwritten.
+
+> [!WARNING]
+> The local index contains filesystem paths. Protect your XDG cache and state directories like other private application data, and remove personal paths from issue logs or screenshots.
+
+Report vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
+
+<details>
+<summary><strong>Machine-readable contract</strong></summary>
 
 ```bash
-DGO_BIN="$PWD/target/release/dgo" expect scripts/measure-picker-latency.exp
+dgo query punk --json
 ```
 
-It enforces the M1 targets for first paint and first useful live result, but is intentionally not a shared-runner CI gate.
+Resolved paths are written to stdout without decoration. Diagnostics and selector UI use stderr. Resolver exit codes are `0` for success, `3` for no match, and `4` for ambiguous or cancelled selection; Clap uses `2` for invalid arguments.
 
-The PTY shell matrix checks Zsh, Bash, and (when installed) Fish against spaces, quotes, Unicode, `..`, leading dashes, bookmarks, and per-shell back/forward navigation. A host without Fish reports an explicit skip rather than a pass; release evidence requires a Fish-equipped macOS or Linux runner.
+UTF-8 paths with spaces, quotes, Unicode, brackets, emoji, and leading dashes are supported. Newline-containing and non-UTF-8 Unix paths are rejected at the shell command-substitution boundary. Direct existing paths handled by the wrapper do not cross that boundary.
 
-```bash
-DGO_BIN="$PWD/target/release/dgo" expect scripts/pty-shell-matrix.exp
-```
+</details>
 
-To measure the streaming interactive path at a chosen fixture size, first create a fixture and then run the dedicated PTY probe. It creates its own index and state and removes them afterwards; the supplied fixture remains unchanged.
+## Technology
 
-```bash
-target/release/dgo-fixture --output /private/tmp/dirgo-100k --directories 100000
-DGO_BIN="$PWD/target/release/dgo" DGO_FIXTURE_ROOT=/private/tmp/dirgo-100k \
-  expect scripts/measure-streaming-picker-latency.exp
-```
+GitHub currently identifies the repository as primarily **Rust**, with small **Shell** and **Ruby** surfaces.
 
-Large fixture creation can be split into repeatable batches. Only a matching Dirgo progress marker can be resumed; arbitrary existing directories and symlinked roots are rejected.
-
-```bash
-target/release/dgo-fixture --output /private/tmp/dirgo-1m \
-  --directories 1000000 --batch-size 200000
-target/release/dgo-fixture --output /private/tmp/dirgo-1m \
-  --directories 1000000 --batch-size 200000 --resume
-```
-
-For a lightweight measurement against your own current index, use `dgo bench --query punk --samples 5`. It reports context load plus median **non-interactive fallback** candidate construction (without counting a synthetic record clone) and fuzzy-resolution work. The interactive picker streams candidate construction into its background matcher after its first frame, but this command remains useful for finding heavy fallback and resolver work. Neither is a cross-machine performance claim.
-
-Before creating a release candidate, run the non-publishing local preflight. It checks formatting, warnings, tests, release binaries, Criterion compilation, offline package assembly, the default one-command install surface, generated completion syntax, PTY picker/terminal/shell restoration gates, a disposable benchmark smoke, and accidental whitespace errors. It never creates tags, uploads artifacts, or changes shell startup files. Use `--require-fish` on a host where Fish release evidence is required.
-
-```bash
-scripts/release-preflight.sh
-```
+| Layer | Technology | Role |
+| --- | --- | --- |
+| Core | Rust 2024 edition | CLI, indexing, ranking, state, and cross-platform actions |
+| Terminal UI | Ratatui + Crossterm | Responsive picker and terminal restoration |
+| Matching | Nucleo | Fast, cancellable fuzzy matching |
+| Storage | redb | Transactional local index and persistent state |
+| Integration | Zsh, Bash, Fish | Parent-shell navigation and completions |
+| Packaging | Homebrew Ruby formula | Maintained macOS installation path |
 
 ## Troubleshooting
 
-| Symptom | Resolution |
+| Symptom | Fix |
 | --- | --- |
-| `dgo` prints a path but does not change directory | The parent-shell wrapper is not active. Run the matching `dgo init <shell>` command above, then confirm `type dgo` reports a function. |
-| A terminal starts slowly or closes shortly after launch | Run `command dgo doctor`. Remove duplicate Dirgo initialization and inspect any oversized startup file reported by Doctor. |
-| A moved or newly created directory is missing | Run `dgo refresh`. Stale bookmarks include exact repair and removal commands in the error. |
-| Configuration is invalid | `dgo config path` still prints the file location, and `dgo doctor` explains the parse failure without requiring a valid config. Repair or move the file and rerun Doctor. |
-| An ambiguous query is used in a pipe or CI | Use `dgo query <query> --json` and handle exit codes `3`/`4`, or make the query exact. Interactive selection requires a terminal. |
-| The picker is unreadable in a limited terminal | Set `NO_COLOR=1`, pass `--no-unicode`, or use `TERM=dumb` for the numbered fallback. |
+| `dgo` prints a path but does not change directory | Load the matching wrapper and confirm `type dgo` reports a function. |
+| A terminal starts slowly or closes | Run `command dgo doctor` and remove duplicate initialization lines. |
+| A new or moved directory is missing | Run `dgo refresh`. |
+| Configuration is invalid | Run `dgo config path`, repair the file, then run `dgo doctor`. |
+| A query is ambiguous in a pipe or CI | Use `dgo query <query> --json` and handle exit codes `3` and `4`. |
+| The picker is unreadable | Try `NO_COLOR=1`, `--no-unicode`, or `TERM=dumb`. |
 
-For support output that remains available even when configuration or storage is broken, run `dgo support`.
+For environment-safe support information, run `dgo support` or read [SUPPORT.md](SUPPORT.md).
 
-## Uninstall
+## Contributing
 
-Remove the shell initialization and completion lines you added, then uninstall the binary:
+Rust 1.89 is the supported toolchain. Start with:
 
 ```bash
-brew uninstall dirgo          # Homebrew installation
-# or remove the manually installed dgo / dgo.exe from PATH
+cargo build --locked
+cargo test --all-features --locked
 ```
 
-Dirgo leaves user data intact. If you also want to erase it, review and remove the `dirgo` directories below `${XDG_CONFIG_HOME:-~/.config}`, `${XDG_CACHE_HOME:-~/.cache}`, and `${XDG_STATE_HOME:-~/.local/state}`. The index is disposable; state contains bookmarks and navigation history, so back it up if needed.
-
-## Development and contributing
-
-Rust 1.89 is the supported toolchain. A new contributor can run `cargo build`, `cargo test --all-features`, and the commands in [CONTRIBUTING.md](CONTRIBUTING.md) without modifying personal shell startup files. The full non-publishing release gate is `scripts/release-preflight.sh --require-fish`.
-
-## Project documents
-
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
-- [Security policy](SECURITY.md)
-- [Support](SUPPORT.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development checks and pull-request expectations.
 
 ## License
 
-Dirgo is licensed under either Apache License 2.0 or MIT, at your option.
+Dirgo is available under your choice of the [MIT license](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE).
 
-Security reports follow [SECURITY.md](SECURITY.md). General help is covered by [SUPPORT.md](SUPPORT.md) and `dgo support`. No donation address is published because the project has no verified maintainer-owned donation destination.
+<div align="center">
+
+**Built for speed. Designed for trust.**
+
+[Releases](https://github.com/RudySource/Dirgo/releases) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Support](SUPPORT.md)
+
+</div>

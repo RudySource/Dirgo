@@ -53,6 +53,7 @@ cargo package --allow-dirty --no-verify --offline --list > "$package_files"
 for required_file in \
   Cargo.toml CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md SECURITY.md SUPPORT.md \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
+  docs/assets/dirgo-wordmark.png \
   scripts/demo-setup.sh src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2
