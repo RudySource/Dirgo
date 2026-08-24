@@ -133,7 +133,8 @@ impl QueryOutcome {
 }
 
 pub fn run() -> Result<i32> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    cli.normalize_resolve_action().map_err(DirgoError::User)?;
     let requested_action = cli.requested_action();
     init_logging(cli.verbose);
 
@@ -228,7 +229,7 @@ pub fn run() -> Result<i32> {
         Some(Command::Stats) => stats(&paths),
         Some(Command::Config { command }) => config_command(&paths, &config, command),
         Some(Command::Support) => unreachable!("handled before storage access"),
-        Some(Command::Resolve(args)) => shell_resolve(&paths, &config, args),
+        Some(Command::Resolve(args)) => shell_resolve(&paths, &config, args, requested_action),
         Some(Command::Refresh | Command::Doctor | Command::Bookmarks) => {
             unreachable!("handled above")
         }
@@ -781,6 +782,8 @@ fn picker_options(config: &Config) -> crate::tui::Options {
     crate::tui::Options {
         color: config.ui.accent != "none" && env::var_os("NO_COLOR").is_none(),
         unicode: config.ui.icons != "never",
+        preview: config.ui.preview,
+        height_percent: config.ui.height_percent,
     }
 }
 
@@ -790,7 +793,12 @@ fn record_navigation(paths: &AppPaths, origin: &Path, destination: &Path) -> Res
     StateStore::open(&paths.state_file)?.record_navigation(origin, destination, session.as_deref())
 }
 
-fn shell_resolve(paths: &AppPaths, config: &Config, args: ResolveArgs) -> Result<i32> {
+fn shell_resolve(
+    paths: &AppPaths,
+    config: &Config,
+    args: ResolveArgs,
+    action: Action,
+) -> Result<i32> {
     match args.query.as_slice() {
         [command] if command == "root" => {
             let Some((path, _)) = index::find_project_root(&args.cwd) else {
@@ -803,12 +811,12 @@ fn shell_resolve(paths: &AppPaths, config: &Config, args: ResolveArgs) -> Result
         [command] if command == "back" => navigation_command(paths, Direction::Back),
         [command] if command == "forward" => navigation_command(paths, Direction::Forward),
         [command, rest @ ..] if command == "repo" => {
-            repository_command(paths, config, &args.cwd, rest.to_vec(), true, Action::Go)
+            repository_command(paths, config, &args.cwd, rest.to_vec(), true, action)
         }
         [command, rest @ ..] if command == "recent" => {
-            recent_command(paths, config, &args.cwd, rest.to_vec(), true, Action::Go)
+            recent_command(paths, config, &args.cwd, rest.to_vec(), true, action)
         }
-        _ => default_query(paths, config, &args.cwd, args.query, true, Action::Go),
+        _ => default_query(paths, config, &args.cwd, args.query, true, action),
     }
 }
 

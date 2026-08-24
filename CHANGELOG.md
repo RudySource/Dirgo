@@ -4,6 +4,27 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- Allow `--open`, `--finder`, `--code`, `--copy`, and `--print` both before and after a directory query, including through the generated Zsh, Bash, and Fish wrappers.
+- Render and optionally publish `RudySource/homebrew-tap` updates automatically from the checksums of a successfully published GitHub release.
+- Publish the official `RudySource/scoop-bucket` as the supported Scoop installation source.
+- Scroll long directory previews reliably with Ctrl-B/Ctrl-F paging, plus shifted navigation keys in terminals that preserve those modifiers, without moving the result selection.
+
+### Changed
+
+- Bound the inline picker to useful content height and apply the configured preview and height preferences.
+- Keep GitHub releases successful when the optional cross-repository Homebrew token is not configured, with an explicit workflow notice and manual update path.
+
+### Fixed
+
+- Return the cursor to the picker's origin after inline teardown so the next shell prompt does not leave a large block of empty terminal rows.
+- Keep up to 200 sorted preview entries and report any omitted remainder instead of silently hiding entries beyond the old 20-item limit.
+- Reject conflicting hidden-resolver action flags even when they appear on opposite sides of the positional separator.
+- Restore the visible cursor from the terminal guard even if picker teardown exits through an error path.
+
 ## [0.2.1] - 2026-08-24
 
 ### Changed

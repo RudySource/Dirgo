@@ -33,6 +33,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo build --release --bin dgo
 sh -n install/dirgo-installer.sh
+sh -n scripts/render-homebrew-formula.sh
 DGO_BIN="$repo_root/target/release/dgo" scripts/installer-smoke.sh
 cargo build --release --bin dgo-fixture --features benchmark-tools
 cargo bench --bench index_pipeline --no-run
@@ -58,12 +59,27 @@ for required_file in \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
   docs/assets/dirgo-wordmark.png \
   install/dirgo-installer.sh install/dirgo-installer.ps1 \
-  scripts/demo-setup.sh scripts/repository-hygiene.sh src/lib.rs src/main.rs; do
+  packaging/homebrew/dirgo.rb.template scripts/demo-setup.sh \
+  scripts/render-homebrew-formula.sh scripts/repository-hygiene.sh src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2
     exit 1
   fi
 done
+
+formula_sums="$scratch_dir/formula-SHA256SUMS"
+formula="$scratch_dir/dirgo.rb"
+printf '%064d  dirgo-v9.8.7-aarch64-apple-darwin.tar.gz\n' 1 > "$formula_sums"
+printf '%064d  dirgo-v9.8.7-x86_64-apple-darwin.tar.gz\n' 2 >> "$formula_sums"
+printf '%064d  dirgo-v9.8.7-x86_64-unknown-linux-gnu.tar.gz\n' 3 >> "$formula_sums"
+scripts/render-homebrew-formula.sh v9.8.7 "$formula_sums" "$formula"
+if grep -q '@[A-Z_]*@' "$formula" || ! grep -q 'releases/download/v9.8.7' "$formula"; then
+  printf '%s\n' 'Rendered Homebrew formula contains stale placeholders or version data' >&2
+  exit 1
+fi
+if command -v ruby >/dev/null 2>&1; then
+  ruby -c "$formula"
+fi
 if grep -Eq '(^target/|\.redb$|\.env$|(^|/)(AGENTS|CLAUDE|CONTEXT|ROADMAP)\.md$|(^|/)id_(rsa|ed25519)$|\.(pem|key|p12|pfx)$|(_AUDIT|_REVIEW_REPORT)\.md$)' "$package_files"; then
   printf '%s\n' 'Release archive contains a forbidden build, private, agent, or secret-like path' >&2
   exit 1

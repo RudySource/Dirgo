@@ -67,6 +67,9 @@ dgo back
 dgo forward
 [ "$PWD" = "$DGO_TEST_ROOT/Projects/Punk" ] || exit 96
 cd "$DGO_TEST_ROOT"
+printed=$(dgo Punk --print)
+[ "$printed" = "$DGO_TEST_ROOT/Projects/Punk" ] || exit 98
+[ "$PWD" = "$DGO_TEST_ROOT" ] || exit 99
 printf 'SHELL-MATRIX:%s:step:picker\n' "$DGO_SHELL_NAME"
 dgo '?' api
 case "$PWD" in
@@ -102,6 +105,9 @@ test "$PWD" = "$DGO_TEST_ROOT"; or exit 95
 dgo forward
 test "$PWD" = "$DGO_TEST_ROOT/Projects/Punk"; or exit 96
 cd "$DGO_TEST_ROOT"
+set -l printed (dgo Punk --print)
+test "$printed" = "$DGO_TEST_ROOT/Projects/Punk"; or exit 98
+test "$PWD" = "$DGO_TEST_ROOT"; or exit 99
 printf 'SHELL-MATRIX:%s:step:picker\n' "$DGO_SHELL_NAME"
 dgo '?' api
 switch "$PWD"

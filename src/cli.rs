@@ -80,13 +80,59 @@ pub struct Cli {
     #[arg(
         value_name = "QUERY",
         num_args = 0..,
-        allow_hyphen_values = true,
         help = "Directory name, path, bookmark, or fuzzy query"
     )]
     pub query: Vec<String>,
 }
 
 impl Cli {
+    /// Shell wrappers pass user arguments through the hidden resolver after a
+    /// `--` separator so leading-dash paths remain data. Recover action flags
+    /// from that positional tail while preserving a user-supplied separator.
+    pub fn normalize_resolve_action(&mut self) -> std::result::Result<(), String> {
+        let already_has_action = self.open || self.finder || self.code || self.copy || self.print;
+        let Some(Command::Resolve(args)) = &mut self.command else {
+            return Ok(());
+        };
+        let literal_from = args
+            .query
+            .iter()
+            .position(|argument| argument == "--")
+            .unwrap_or(args.query.len());
+        let mut action = None;
+        let mut query = Vec::with_capacity(args.query.len());
+        for (index, argument) in args.query.drain(..).enumerate() {
+            let parsed = (index < literal_from)
+                .then(|| action_flag(&argument))
+                .flatten();
+            if let Some(next) = parsed {
+                if action.replace(next).is_some() {
+                    return Err(
+                        "only one of --open, --finder, --code, --copy, or --print may be used"
+                            .into(),
+                    );
+                }
+            } else if index != literal_from || argument != "--" {
+                query.push(argument);
+            }
+        }
+        args.query = query;
+        if action.is_some() && already_has_action {
+            return Err(
+                "only one of --open, --finder, --code, --copy, or --print may be used".into(),
+            );
+        }
+        match action {
+            Some("open") => self.open = true,
+            Some("finder") => self.finder = true,
+            Some("code") => self.code = true,
+            Some("copy") => self.copy = true,
+            Some("print") => self.print = true,
+            Some(_) | None => {}
+        }
+        Ok(())
+    }
+
     pub fn requested_action(&self) -> Action {
         if self.open || self.finder {
             Action::Open
@@ -99,6 +145,17 @@ impl Cli {
         } else {
             Action::Go
         }
+    }
+}
+
+fn action_flag(argument: &str) -> Option<&'static str> {
+    match argument {
+        "--open" => Some("open"),
+        "--finder" => Some("finder"),
+        "--code" => Some("code"),
+        "--copy" => Some("copy"),
+        "--print" => Some("print"),
+        _ => None,
     }
 }
 
@@ -255,4 +312,68 @@ pub enum ConfigCommand {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ImportSource {
     Zoxide,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn action_flags_parse_before_and_after_a_public_query() {
+        for flag in ["--open", "--finder", "--code", "--copy", "--print"] {
+            for arguments in [["dgo", flag, "project"], ["dgo", "project", flag]] {
+                let cli = Cli::try_parse_from(arguments).expect("valid action placement");
+                assert_eq!(cli.query, ["project"]);
+                assert_ne!(cli.requested_action(), Action::Go);
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_resolver_recovers_actions_but_preserves_literal_flag_queries() {
+        let mut action = Cli::try_parse_from([
+            "dgo",
+            "__resolve",
+            "--cwd",
+            "/work",
+            "--",
+            "project",
+            "--finder",
+        ])
+        .expect("resolver action");
+        action.normalize_resolve_action().expect("normalize action");
+        assert_eq!(action.requested_action(), Action::Open);
+        let Some(Command::Resolve(args)) = action.command else {
+            panic!("resolve command");
+        };
+        assert_eq!(args.query, ["project"]);
+
+        let mut literal =
+            Cli::try_parse_from(["dgo", "__resolve", "--cwd", "/work", "--", "--", "--finder"])
+                .expect("literal resolver query");
+        literal
+            .normalize_resolve_action()
+            .expect("normalize literal");
+        assert_eq!(literal.requested_action(), Action::Go);
+        let Some(Command::Resolve(args)) = literal.command else {
+            panic!("resolve command");
+        };
+        assert_eq!(args.query, ["--finder"]);
+    }
+
+    #[test]
+    fn hidden_resolver_rejects_actions_on_both_sides_of_the_separator() {
+        let mut cli = Cli::try_parse_from([
+            "dgo",
+            "--open",
+            "__resolve",
+            "--cwd",
+            "/work",
+            "--",
+            "project",
+            "--copy",
+        ])
+        .expect("trailing resolver arguments are positional");
+        assert!(cli.normalize_resolve_action().is_err());
+    }
 }

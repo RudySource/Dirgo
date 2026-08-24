@@ -58,6 +58,16 @@ function dgo() {
       ;;
   esac
 
+  local argument
+  for argument in "$@"; do
+    case "$argument" in
+      --open|--finder|--code|--copy|--print)
+        command dgo "$@"
+        return $?
+        ;;
+    esac
+  done
+
   if (( $# == 1 )); then
     if [[ "$1" == "-" ]]; then
       builtin cd -
@@ -94,6 +104,16 @@ dgo() {
       ;;
   esac
 
+  local argument
+  for argument in "$@"; do
+    case "$argument" in
+      --open|--finder|--code|--copy|--print)
+        command dgo "$@"
+        return $?
+        ;;
+    esac
+  done
+
   if [[ $# -eq 1 ]]; then
     if [[ "$1" == "-" ]]; then
       builtin cd -
@@ -126,6 +146,14 @@ function dgo --description 'Go anywhere. Instantly.'
     if test (count $argv) -gt 0
         switch "$argv[1]"
             case setup init completions refresh query explain bench bookmarks bookmark import doctor stats config support --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
+                command dgo $argv
+                return $status
+        end
+    end
+
+    for argument in $argv
+        switch "$argument"
+            case --open --finder --code --copy --print
                 command dgo $argv
                 return $status
         end
@@ -245,6 +273,10 @@ mod tests {
             let script = integration(shell);
             assert!(script.contains("builtin cd"));
             assert!(script.contains("command dgo __resolve"));
+            assert!(
+                script.contains("--open|--finder|--code|--copy|--print")
+                    || script.contains("case --open --finder --code --copy --print")
+            );
             assert!(!script.contains("eval $destination"));
         }
     }

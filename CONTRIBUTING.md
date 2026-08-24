@@ -38,3 +38,9 @@ Keep user-facing terminology consistent across the CLI help, README, and code. A
 ## Pull requests
 
 Include behavior-focused tests, list exact verification commands, and do not add performance claims without a reproducible fixture, method, and result.
+
+## Releases
+
+Run `scripts/release-preflight.sh`, then push an annotated version tag that exactly matches `Cargo.toml`. The release workflow publishes attested native archives and only then updates `RudySource/homebrew-tap` from the released checksums when the optional tap token is configured.
+
+Optional repository secret `HOMEBREW_TAP_TOKEN` must be a fine-grained token scoped only to `RudySource/homebrew-tap` with repository Contents read/write permission. Without it, the release remains successful and reports that the tap update was skipped. The normal `GITHUB_TOKEN` remains read-only outside Dirgo and cannot update the separate tap repository.

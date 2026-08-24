@@ -11,6 +11,11 @@ set sandbox "/tmp/dirgo-pty-[pid]-[clock seconds]"
 set fixture_root "$sandbox/filesystem"
 file mkdir "$fixture_root/Archive/api"
 file mkdir "$fixture_root/Services/api"
+for {set index 0} {$index < 30} {incr index} {
+    set entry [format "content-%02d" $index]
+    set handle [open "$fixture_root/Archive/api/$entry" w]
+    close $handle
+}
 file mkdir "$sandbox/config/dirgo"
 set config [open "$sandbox/config/dirgo/config.toml" w]
 puts $config "schema_version = 1"
@@ -52,6 +57,26 @@ expect {
         puts stderr "live query did not produce both matches"
         file delete -force $sandbox
         exit 5
+    }
+}
+expect {
+    -exact "content-00" {}
+    timeout {
+        puts stderr "directory preview did not load"
+        file delete -force $sandbox
+        exit 6
+    }
+}
+for {set index 0} {$index < 5} {incr index} {
+    send -- "\006"
+}
+send -- "\t\t"
+expect {
+    -exact "content-29" {}
+    timeout {
+        puts stderr "directory preview did not scroll to the final entry"
+        file delete -force $sandbox
+        exit 7
     }
 }
 send -- "\033\[B\r"

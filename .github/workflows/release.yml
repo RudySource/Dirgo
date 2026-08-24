@@ -6,7 +6,7 @@ on:
       - "v*"
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 permissions:
@@ -126,3 +126,55 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "Dirgo $GITHUB_REF_NAME"
+
+  homebrew:
+    name: update Homebrew tap
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Detect tap token
+        id: tap-token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [[ -n "$HOMEBREW_TAP_TOKEN" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_TOKEN is not configured; skipping the tap update."
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tap-token.outputs.configured == 'true'
+        with:
+          path: source
+      - name: Download published checksums
+        if: steps.tap-token.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tap-token.outputs.configured == 'true'
+        with:
+          repository: RudySource/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Render and validate formula
+        if: steps.tap-token.outputs.configured == 'true'
+        run: |
+          source/scripts/render-homebrew-formula.sh "$GITHUB_REF_NAME" release/SHA256SUMS homebrew-tap/Formula/dirgo.rb
+          ruby -c homebrew-tap/Formula/dirgo.rb
+          git -C homebrew-tap diff --check
+      - name: Publish formula update
+        if: steps.tap-token.outputs.configured == 'true'
+        run: |
+          if git -C homebrew-tap diff --quiet -- Formula/dirgo.rb; then
+            echo "Homebrew formula is already current."
+            exit 0
+          fi
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C homebrew-tap add Formula/dirgo.rb
+          git -C homebrew-tap commit -m "brew: update dirgo to $GITHUB_REF_NAME"
+          git -C homebrew-tap push origin HEAD:main

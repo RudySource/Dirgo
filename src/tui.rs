@@ -12,6 +12,7 @@ use std::{
 };
 
 use crossterm::{
+    cursor::Show,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -22,7 +23,7 @@ use nucleo::{
 };
 use ratatui::{
     Frame, Terminal, TerminalOptions, Viewport,
-    backend::CrosstermBackend,
+    backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -41,7 +42,8 @@ use crate::{
 
 const RESULT_CACHE_LIMIT: u32 = 2_000;
 const PREVIEW_DEBOUNCE: Duration = Duration::from_millis(90);
-const PREVIEW_ENTRY_LIMIT: usize = 20;
+const PREVIEW_ENTRY_LIMIT: usize = 200;
+const PREVIEW_PAGE_ROWS: isize = 6;
 
 pub fn is_supported() -> bool {
     use std::io::IsTerminal;
@@ -75,6 +77,8 @@ pub enum PickOutcome {
 pub struct Options {
     pub color: bool,
     pub unicode: bool,
+    pub preview: bool,
+    pub height_percent: u8,
 }
 
 impl Default for Options {
@@ -82,6 +86,8 @@ impl Default for Options {
         Self {
             color: env::var_os("NO_COLOR").is_none(),
             unicode: true,
+            preview: true,
+            height_percent: 70,
         }
     }
 }
@@ -183,10 +189,9 @@ fn pick_with_matcher(
 ) -> Result<PickOutcome> {
     use std::io::IsTerminal;
 
-    let (_, terminal_rows) =
+    let (terminal_columns, terminal_rows) =
         crossterm::terminal::size().map_err(|error| DirgoError::io("terminal", error))?;
-    let height = ((u32::from(terminal_rows) * 70) / 100) as u16;
-    let height = height.clamp(7, 24).min(terminal_rows.max(1));
+    let height = picker_height(terminal_columns, terminal_rows, options);
 
     enable_raw_mode().map_err(|error| DirgoError::io("terminal", error))?;
     let mut terminal_mode = TerminalModeGuard {
@@ -217,6 +222,8 @@ fn pick_with_matcher(
             }
         }
     };
+    let inline_origin =
+        (!terminal_mode.alternate_screen).then(|| terminal.get_frame().area().as_position());
     terminal
         .hide_cursor()
         .map_err(|error| DirgoError::io("terminal", error))?;
@@ -296,7 +303,24 @@ fn pick_with_matcher(
     terminal
         .show_cursor()
         .map_err(|error| DirgoError::io("terminal", error))?;
+    if let Some(origin) = inline_origin {
+        terminal
+            .backend_mut()
+            .set_cursor_position(origin)
+            .map_err(|error| DirgoError::io("terminal", error))?;
+    }
     Ok(outcome)
+}
+
+fn picker_height(columns: u16, rows: u16, options: Options) -> u16 {
+    let percent = u32::from(options.height_percent.clamp(30, 100));
+    let scaled = ((u32::from(rows) * percent) / 100) as u16;
+    let maximum = if options.preview && columns >= 88 {
+        16
+    } else {
+        12
+    };
+    scaled.clamp(7, maximum).min(rows.max(1))
 }
 
 fn should_use_fullscreen(stdout_is_terminal: bool, explicitly_forced: bool) -> bool {
@@ -444,6 +468,7 @@ struct DirectoryPreview {
     path: PathBuf,
     project_type: Option<&'static str>,
     entries: Vec<String>,
+    omitted_entries: usize,
     error: Option<String>,
 }
 
@@ -486,6 +511,7 @@ fn load_directory_preview(path: PathBuf) -> DirectoryPreview {
         path: path.clone(),
         project_type: None,
         entries: Vec::new(),
+        omitted_entries: 0,
         error: None,
     };
     let read_dir = match fs::read_dir(&path) {
@@ -511,6 +537,7 @@ fn load_directory_preview(path: PathBuf) -> DirectoryPreview {
         entries.push(format!("{name}{suffix}"));
     }
     entries.sort_unstable_by_key(|entry| entry.to_lowercase());
+    preview.omitted_entries = entries.len().saturating_sub(PREVIEW_ENTRY_LIMIT);
     entries.truncate(PREVIEW_ENTRY_LIMIT);
     preview.project_type = detect_project_type(&marker_names);
     preview.entries = entries;
@@ -566,6 +593,7 @@ impl Drop for TerminalModeGuard {
         if self.alternate_screen {
             let _ = execute!(io::stderr(), LeaveAlternateScreen);
         }
+        let _ = execute!(io::stderr(), Show);
         let _ = disable_raw_mode();
     }
 }
@@ -583,6 +611,8 @@ struct PickerState {
     selection_changed_at: Instant,
     requested_preview: Option<PathBuf>,
     preview_data: Option<DirectoryPreview>,
+    preview_scroll: usize,
+    preview_max_scroll: usize,
 }
 
 impl PickerState {
@@ -593,7 +623,7 @@ impl PickerState {
             query: query.to_owned(),
             cursor: query.len(),
             list,
-            preview: true,
+            preview: options.preview,
             color: options.color,
             unicode: options.unicode,
             matching: true,
@@ -601,6 +631,8 @@ impl PickerState {
             selection_changed_at: Instant::now(),
             requested_preview: None,
             preview_data: None,
+            preview_scroll: 0,
+            preview_max_scroll: 0,
         }
     }
 
@@ -645,6 +677,7 @@ impl PickerState {
         self.selection_changed_at = Instant::now();
         self.requested_preview = None;
         self.preview_data = None;
+        self.reset_preview_scroll();
     }
 
     fn insert(&mut self, character: char) {
@@ -711,6 +744,26 @@ impl PickerState {
             .map(|candidate| &candidate.path);
         if selected_path == Some(&preview.path) {
             self.preview_data = Some(preview);
+            self.reset_preview_scroll();
+        }
+    }
+
+    fn reset_preview_scroll(&mut self) {
+        self.preview_scroll = 0;
+        self.preview_max_scroll = 0;
+    }
+
+    fn scroll_preview(&mut self, amount: isize) {
+        if !self.preview {
+            return;
+        }
+        if amount < 0 {
+            self.preview_scroll = self.preview_scroll.saturating_sub(amount.unsigned_abs());
+        } else {
+            self.preview_scroll = self
+                .preview_scroll
+                .saturating_add(amount as usize)
+                .min(self.preview_max_scroll);
         }
     }
 }
@@ -756,6 +809,14 @@ fn handle_key(
         }
         (KeyCode::Char('r'), KeyModifiers::CONTROL) => PickerAction::Refresh,
         (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => PickerAction::Cancel,
+        (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
+            state.scroll_preview(-PREVIEW_PAGE_ROWS);
+            PickerAction::Continue
+        }
+        (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
+            state.scroll_preview(PREVIEW_PAGE_ROWS);
+            PickerAction::Continue
+        }
         (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
             if state.clear_query() {
                 PickerAction::QueryChanged
@@ -787,6 +848,30 @@ fn handle_key(
             if let Some(next) = next_boundary(&state.query, state.cursor) {
                 state.cursor = next;
             }
+            PickerAction::Continue
+        }
+        (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.scroll_preview(-1);
+            PickerAction::Continue
+        }
+        (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.scroll_preview(1);
+            PickerAction::Continue
+        }
+        (KeyCode::PageUp, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.scroll_preview(-PREVIEW_PAGE_ROWS);
+            PickerAction::Continue
+        }
+        (KeyCode::PageDown, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.scroll_preview(PREVIEW_PAGE_ROWS);
+            PickerAction::Continue
+        }
+        (KeyCode::Home, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.preview_scroll = 0;
+            PickerAction::Continue
+        }
+        (KeyCode::End, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
+            state.preview_scroll = state.preview_max_scroll;
             PickerAction::Continue
         }
         (KeyCode::Char(character), modifiers)
@@ -954,67 +1039,109 @@ fn render_preview(
     frame: &mut Frame<'_>,
     area: Rect,
     candidates: &[Candidate],
-    state: &PickerState,
+    state: &mut PickerState,
 ) {
     let Some(candidate) = state.selected().and_then(|index| candidates.get(index)) else {
         return;
     };
-    let mut lines = vec![
+    let block = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(muted())
+        .padding(Padding::new(2, 1, 0, 0));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4.min(inner.height)),
+            Constraint::Length(1.min(inner.height.saturating_sub(4))),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    let mut metadata = Vec::new();
+    if candidate.is_project_root {
+        metadata.push("Project root".to_owned());
+    }
+    if let Some(bookmark) = &candidate.bookmark {
+        metadata.push(format!("@{bookmark}"));
+    }
+    if let Some(project_type) = state
+        .preview_data
+        .as_ref()
+        .filter(|preview| preview.path == candidate.path)
+        .and_then(|preview| preview.project_type)
+    {
+        metadata.push(project_type.to_owned());
+    }
+    let header = vec![
         Line::from(Span::styled("Destination", muted())),
         Line::from(Span::styled(
             crate::terminal::safe_text(&candidate.basename).into_owned(),
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(crate::terminal::safe_path(&candidate.path)),
+        Line::from(Span::styled(metadata.join("  ·  "), accent(state.color))),
     ];
-    if candidate.is_project_root {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Project root",
-            accent(state.color),
-        )));
-    }
-    if let Some(bookmark) = &candidate.bookmark {
-        lines.push(Line::from(format!("Bookmark  @{bookmark}")));
-    }
+    frame.render_widget(Paragraph::new(header).wrap(Wrap { trim: true }), rows[0]);
+
     match state
         .preview_data
         .as_ref()
         .filter(|preview| preview.path == candidate.path)
     {
         Some(preview) => {
-            if let Some(project_type) = preview.project_type {
-                lines.push(Line::from(project_type));
-            }
-            lines.push(Line::from(""));
             if preview.error.is_some() {
-                lines.push(Line::from(Span::styled("Preview unavailable", muted())));
-            } else if preview.entries.is_empty() {
-                lines.push(Line::from(Span::styled("Empty directory", muted())));
-            } else {
-                lines.push(Line::from(Span::styled("Contents", muted())));
-                lines.extend(
-                    preview
-                        .entries
-                        .iter()
-                        .map(|entry| Line::from(crate::terminal::safe_text(entry).into_owned())),
+                state.preview_scroll = 0;
+                state.preview_max_scroll = 0;
+                frame.render_widget(
+                    Paragraph::new(Span::styled("Preview unavailable", muted())),
+                    rows[1],
                 );
+            } else if preview.entries.is_empty() {
+                state.preview_scroll = 0;
+                state.preview_max_scroll = 0;
+                frame.render_widget(
+                    Paragraph::new(Span::styled("Empty directory", muted())),
+                    rows[1],
+                );
+            } else {
+                let item_count = preview.entries.len() + usize::from(preview.omitted_entries > 0);
+                let visible_count = usize::from(rows[2].height);
+                state.preview_max_scroll = item_count.saturating_sub(visible_count);
+                state.preview_scroll = state.preview_scroll.min(state.preview_max_scroll);
+                let start = state.preview_scroll;
+                let end = start.saturating_add(visible_count).min(item_count);
+                let total_entries = preview.entries.len() + preview.omitted_entries;
+                let title = if visible_count == 0 {
+                    format!("Contents  {total_entries}")
+                } else {
+                    format!("Contents  {}–{end}/{total_entries}", start + 1)
+                };
+                frame.render_widget(Paragraph::new(Span::styled(title, muted())), rows[1]);
+
+                let items = (start..end).map(|index| {
+                    if let Some(entry) = preview.entries.get(index) {
+                        ListItem::new(Line::from(crate::terminal::safe_text(entry).into_owned()))
+                    } else {
+                        ListItem::new(Line::from(Span::styled(
+                            format!("… {} more entries", preview.omitted_entries),
+                            muted(),
+                        )))
+                    }
+                });
+                frame.render_widget(List::new(items), rows[2]);
             }
         }
         None => {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("Loading directory…", muted())));
+            state.preview_scroll = 0;
+            state.preview_max_scroll = 0;
+            frame.render_widget(
+                Paragraph::new(Span::styled("Loading directory…", muted())),
+                rows[1],
+            );
         }
     }
-    let block = Block::default()
-        .borders(Borders::LEFT)
-        .border_style(muted())
-        .padding(Padding::new(2, 1, 0, 0));
-    frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: true }),
-        area,
-    );
 }
 
 fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &PickerState) {
@@ -1066,7 +1193,7 @@ fn render_footer(
     } else {
         "Up/Down move   Enter go".to_owned()
     };
-    if !compact {
+    if !compact && area.width >= 120 {
         if actions.open {
             controls.push_str("   ^O open");
         }
@@ -1076,14 +1203,27 @@ fn render_footer(
         if actions.editor {
             controls.push_str("   ^E editor");
         }
-        controls.push_str("   ^R refresh   Tab preview   Esc close");
     }
-    let line = Line::from(vec![
-        Span::styled(controls, muted()),
-        Span::raw("   "),
-        Span::styled(count, accent(state.color)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    if !compact {
+        controls.push_str("   ^R refresh   Tab preview");
+        if state.preview && area.width >= 88 && state.preview_max_scroll > 0 {
+            controls.push_str("   ^B/^F scroll");
+        }
+        controls.push_str("   Esc close");
+    }
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(count.len().min(usize::from(u16::MAX)) as u16),
+        ])
+        .spacing(1)
+        .split(area);
+    frame.render_widget(Paragraph::new(Span::styled(controls, muted())), columns[0]);
+    frame.render_widget(
+        Paragraph::new(Span::styled(count, accent(state.color))).alignment(Alignment::Right),
+        columns[1],
+    );
 }
 
 fn accent(color: bool) -> Style {
@@ -1107,6 +1247,15 @@ mod tests {
         assert!(should_use_fullscreen(false, false));
         assert!(should_use_fullscreen(true, true));
         assert!(!should_use_fullscreen(true, false));
+    }
+
+    #[test]
+    fn inline_picker_height_is_bounded_by_useful_content() {
+        let options = Options::default();
+        assert_eq!(picker_height(120, 60, options), 16);
+        assert_eq!(picker_height(70, 60, options), 12);
+        assert_eq!(picker_height(120, 9, options), 7);
+        assert_eq!(picker_height(120, 5, options), 5);
     }
     use ratatui::backend::TestBackend;
     use std::path::Path;
@@ -1155,6 +1304,67 @@ mod tests {
         assert!(output.contains("│"));
         assert!(output.contains("Destination"));
         assert!(output.contains("Project root"));
+        assert!(output.contains("2 matches"));
+    }
+
+    #[test]
+    fn preview_scroll_reaches_content_beyond_the_visible_panel() {
+        let backend = TestBackend::new(100, 12);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let candidates = [candidate("/work/Punk", true)];
+        let mut state = PickerState::new("pun", Options::default());
+        state.color = false;
+        state.matching = false;
+        state.matched_total = candidates.len();
+        state.selection_changed_at = Instant::now() - PREVIEW_DEBOUNCE;
+        state.preview_data = Some(DirectoryPreview {
+            path: candidates[0].path.clone(),
+            project_type: Some("Rust project"),
+            entries: (0..40).map(|index| format!("entry-{index:02}")).collect(),
+            omitted_entries: 0,
+            error: None,
+        });
+
+        terminal
+            .draw(|frame| render(frame, &candidates, &mut state, Availability::default()))
+            .expect("initial preview");
+        let initial = terminal.backend().to_string();
+        assert!(initial.contains("entry-00"));
+        assert!(!initial.contains("entry-39"));
+        assert!(state.preview_max_scroll > 0);
+
+        for _ in 0..10 {
+            assert!(matches!(
+                handle_key(
+                    KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+                    &mut state,
+                    candidates.len(),
+                    Availability::default(),
+                ),
+                PickerAction::Continue
+            ));
+        }
+        assert_eq!(state.selected(), Some(0));
+        terminal
+            .draw(|frame| render(frame, &candidates, &mut state, Availability::default()))
+            .expect("scrolled preview");
+        let scrolled = terminal.backend().to_string();
+        assert!(scrolled.contains("entry-39"));
+        assert!(!scrolled.contains("entry-00"));
+    }
+
+    #[test]
+    fn preview_scroll_is_clamped_and_resets_with_selection() {
+        let mut state = PickerState::new("", Options::default());
+        state.preview_max_scroll = 9;
+        state.scroll_preview(30);
+        assert_eq!(state.preview_scroll, 9);
+        state.scroll_preview(-30);
+        assert_eq!(state.preview_scroll, 0);
+        state.scroll_preview(5);
+        state.move_by(1, 2);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.preview_max_scroll, 0);
     }
 
     #[test]
@@ -1285,7 +1495,7 @@ mod tests {
     fn directory_preview_is_shallow_bounded_and_detects_project_type() {
         let temp = tempfile::tempdir().expect("preview tempdir");
         fs::write(temp.path().join("Cargo.toml"), "[package]").expect("project marker");
-        for index in 0..25 {
+        for index in 0..(PREVIEW_ENTRY_LIMIT + 5) {
             fs::create_dir(temp.path().join(format!("entry-{index:02}"))).expect("preview entry");
         }
         fs::write(temp.path().join("entry-00/nested.txt"), "not top level").expect("nested file");
@@ -1294,6 +1504,7 @@ mod tests {
 
         assert_eq!(preview.project_type, Some("Rust project"));
         assert_eq!(preview.entries.len(), PREVIEW_ENTRY_LIMIT);
+        assert_eq!(preview.omitted_entries, 6);
         assert!(!preview.entries.iter().any(|entry| entry == "nested.txt"));
         assert!(preview.entries.iter().any(|entry| entry.ends_with('/')));
         assert!(preview.error.is_none());
@@ -1309,6 +1520,7 @@ mod tests {
             Options {
                 color: false,
                 unicode: false,
+                ..Options::default()
             },
         );
         state.matching = false;

@@ -652,6 +652,62 @@ fn configured_editor_receives_a_literal_path_as_one_argument() {
 }
 
 #[test]
+fn action_flags_work_after_the_query() {
+    let fixture = Fixture::new();
+    let editor = fixture.temp.path().join("capture-editor-after-query");
+    let output = fixture.temp.path().join("editor-after-query-argument");
+    fs::write(
+        &editor,
+        "#!/bin/sh\nprintf '%s' \"$1\" > \"$DGO_ACTION_OUTPUT\"\n",
+    )
+    .expect("editor fixture");
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).expect("editor permissions");
+    fs::write(
+        fixture.temp.path().join("config/dirgo/config.toml"),
+        format!(
+            "schema_version = 1\nroots = [{}]\n[actions]\neditor = {}\n",
+            toml_string(&fixture.temp.path().join("filesystem")),
+            toml_string(&editor),
+        ),
+    )
+    .expect("action config");
+
+    fixture
+        .command()
+        .env("DGO_ACTION_OUTPUT", &output)
+        .args(["quo'te space", "--code"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert_eq!(
+        fs::read_to_string(output).expect("captured editor argument"),
+        fixture
+            .temp
+            .path()
+            .join("filesystem/Projects/quo'te space")
+            .canonicalize()
+            .expect("canonical action path")
+            .display()
+            .to_string()
+    );
+}
+
+#[test]
+fn shell_resolver_recovers_trailing_action_flags() {
+    let fixture = Fixture::new();
+    let target = fixture.temp.path().join("filesystem/Projects/Punk");
+    fixture
+        .command()
+        .args(["__resolve", "--cwd"])
+        .arg(fixture.temp.path().join("filesystem"))
+        .args(["--", "Punk", "--print"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(format!("{}\n", target.display())));
+}
+
+#[test]
 fn shell_init_contains_fast_path_and_no_path_eval() {
     let fixture = Fixture::new();
     fixture

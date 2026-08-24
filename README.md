@@ -102,6 +102,13 @@ irm https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer
 
 The PowerShell installer verifies SHA-256 before copying `dgo.exe` and asks before changing your user `PATH`.
 
+Prefer Scoop? Add the official bucket and install Dirgo:
+
+```powershell
+scoop bucket add rudysource https://github.com/RudySource/scoop-bucket
+scoop install rudysource/dirgo
+```
+
 > [!NOTE]
 > Windows currently includes the native CLI and picker, but not parent-shell navigation. A PowerShell wrapper is planned for a later release.
 
@@ -179,6 +186,8 @@ The picker opens when a query is ambiguous or when you run `dgo` without a desti
 | `Home` / `End` or `PageUp` / `PageDown` | Move through long lists |
 | `Enter` | Go to the selected directory |
 | `Tab` | Toggle the directory preview |
+| `Ctrl-B` / `Ctrl-F` | Page backward or forward through the directory preview |
+| `Shift-↑` / `Shift-↓`, `Shift-Home` / `Shift-End`, `Shift-PageUp` / `Shift-PageDown` | Additional preview controls in terminals that preserve shifted navigation keys |
 | `Ctrl-R` | Rebuild the index atomically |
 | `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or launch the configured editor |
 | `Ctrl-U` | Clear the query |
@@ -210,6 +219,15 @@ dgo support                    show support and security guidance
 ```
 
 Run `dgo --help` or `dgo <command> --help` for the complete interface.
+
+Action flags work on either side of the query, so both forms below are equivalent:
+
+```bash
+dgo --finder "project name"
+dgo "project name" --finder
+```
+
+The same ordering applies to `--open`, `--code`, `--copy`, and `--print`. Only one action may be requested at a time.
 
 ### Resolution safety
 
@@ -254,6 +272,7 @@ editor = "auto"
 ```
 
 `actions.editor` accepts one executable name or path, never a shell command line.
+`ui.height_percent` is capped to the useful picker content height, so closing the picker does not leave a large empty terminal block.
 
 </details>
 
@@ -332,18 +351,21 @@ GitHub currently identifies the repository as primarily **Rust**, with small **S
 
 ## Release status and roadmap
 
-**Dirgo 0.2 is the completed product release.** The core navigation workflow,
-safe shell onboarding, native archives, Homebrew distribution, checksum
-verification, provenance attestations, recovery behavior, and cross-platform CI
-are shipped. The project is now in maintenance mode: future work is additive
-and does not block normal use of the current release.
+**Dirgo 0.3 is the current product release.** It builds on the completed 0.2
+foundation with order-independent action flags, a bounded inline picker,
+scrollable directory previews, and release-driven Homebrew formula generation.
+The project remains in maintenance mode: future work is additive and does not
+block normal use of the current release.
 
 | Status | Release area | Outcome |
 | --- | --- | --- |
 | ✅ Shipped | Navigation core | Indexed discovery, fuzzy picker, bookmarks, recent history, project roots, and per-shell back/forward navigation |
 | ✅ Shipped | Safety and privacy | Local-only operation, escaped terminal output, bounded state, non-destructive recovery, and repository hygiene gates |
-| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, verified archives, and reversible Zsh/Bash/Fish setup |
+| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, the official Scoop bucket, verified archives, and reversible Zsh/Bash/Fish setup |
 | ✅ Shipped | Release quality | Rust formatting and lint gates, unit/integration/PTY tests, dependency policy, checksums, and build attestations |
+| ✅ Shipped | Action workflow | Open, Finder, editor, clipboard, and print actions work before or after a query and pass safely through shell integration |
+| ✅ Shipped | Picker ergonomics | Useful-content inline height, reliable cursor restoration, configurable preview visibility, and scrollable bounded directory contents |
+| ✅ Shipped | Package automation | Release checksums render a validated Homebrew formula, with a safe manual fallback when cross-repository credentials are not configured |
 | 🔭 Future | Windows navigation | PowerShell parent-shell wrapper so `dgo` can change the caller's directory |
 | 🔭 Future | More platforms | Linux ARM64 and musl builds, followed by additional package managers where demand justifies maintenance |
 | 🔭 Future | Index freshness | Optional incremental refresh or filesystem watching without adding telemetry or a required background service |
