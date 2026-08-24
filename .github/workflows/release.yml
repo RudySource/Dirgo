@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.89"
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Verify tag matches Cargo version
+        shell: bash
+        run: |
+          crate_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          test "$GITHUB_REF_NAME" = "v$crate_version"
+
+      - run: cargo test --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} --bin dgo
+
+      - name: Verify Linux glibc compatibility baseline
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          binary="target/${{ matrix.target }}/release/dgo"
+          maximum=$(objdump -T "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1)
+          printf 'Maximum required glibc symbol: %s\n' "$maximum"
+          test "$(printf '%s\n' GLIBC_2.35 "$maximum" | sort -V | tail -n 1)" = GLIBC_2.35
+
+      - name: Package Unix archive
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          package="dirgo-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "stage/$package" dist
+          cp "target/${{ matrix.target }}/release/dgo" README.md CHANGELOG.md CONTRIBUTING.md LICENSE-APACHE LICENSE-MIT SECURITY.md SUPPORT.md "stage/$package/"
+          cp -R docs "stage/$package/"
+          "stage/$package/dgo" --version
+          tar -C stage -czf "dist/$package.tar.gz" "$package"
+
+      - name: Package Windows archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $package = "dirgo-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force "stage/$package", dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/dgo.exe", README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE-APACHE, LICENSE-MIT, SECURITY.md, SUPPORT.md "stage/$package/"
+          Copy-Item docs "stage/$package/" -Recurse
+          & "stage/$package/dgo.exe" --version
+          Compress-Archive -Path "stage/$package" -DestinationPath "dist/$package.zip"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dirgo-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Add stable installer assets
+        shell: bash
+        run: |
+          for archive in dist/dirgo-"$GITHUB_REF_NAME"-*; do
+            stable="dist/dirgo-${archive#*-$GITHUB_REF_NAME-}"
+            cp "$archive" "$stable"
+          done
+          cp install/dirgo-installer.sh dist/dirgo-installer.sh
+          cp install/dirgo-installer.ps1 dist/dirgo-installer.ps1
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum dirgo-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Attest release provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Publish immutable tag assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "Dirgo $GITHUB_REF_NAME"

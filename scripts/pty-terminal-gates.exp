@@ -1,0 +1,120 @@
+#!/usr/bin/expect -f
+
+set timeout 6
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-terminal-[pid]-[clock seconds]"
+set fixture_root "$sandbox/filesystem"
+file mkdir "$fixture_root/Archive/api"
+file mkdir "$fixture_root/Services/api"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$fixture_root\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(TMPDIR) "$sandbox"
+set env(TERM) "xterm-256color"
+set env(DGO_TUI_FULLSCREEN) 1
+
+spawn -noecho /bin/sh -c {stty rows 24 columns 100; before=$(stty -g); "$DGO_BIN" query api; status=$?; after=$(stty -g); if [ "$status" -eq 4 ] && [ "$before" = "$after" ]; then echo TERMINAL_RESTORED; exit 0; fi; echo "terminal gate failed: status=$status"; exit 9}
+
+expect {
+    -exact "api" {}
+    timeout {
+        puts stderr "picker did not render"
+        file delete -force $sandbox
+        exit 4
+    }
+}
+
+exec -ignorestderr stty rows 6 columns 36 <@ $spawn_id
+send -- "\025no-match"
+expect {
+    -exact "No directories match" {}
+    timeout {
+        puts stderr "picker did not survive tiny-terminal resize"
+        file delete -force $sandbox
+        exit 5
+    }
+}
+send -- "\003"
+expect {
+    -exact "TERMINAL_RESTORED" {}
+    timeout {
+        puts stderr "Ctrl-C did not restore terminal state"
+        file delete -force $sandbox
+        exit 6
+    }
+}
+expect eof
+set result [wait]
+if {[lindex $result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $result 3]
+}
+
+file mkdir "$fixture_root/NewAfterRefresh"
+spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query api}
+expect {
+    -exact "api" {}
+    timeout {
+        puts stderr "refresh picker did not render"
+        file delete -force $sandbox
+        exit 7
+    }
+}
+send -- "\022"
+expect {
+    -exact "Reopen Dirgo to search the refreshed index." {}
+    timeout {
+        puts stderr "Ctrl-R did not rebuild the index"
+        file delete -force $sandbox
+        exit 8
+    }
+}
+expect eof
+set refresh_result [wait]
+if {[lindex $refresh_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $refresh_result 3]
+}
+
+spawn -noecho "$env(DGO_BIN)" query NewAfterRefresh
+expect {
+    -exact "NewAfterRefresh" {}
+    timeout {
+        puts stderr "refreshed index does not contain the new directory"
+        file delete -force $sandbox
+        exit 9
+    }
+}
+expect eof
+set query_result [wait]
+if {[lindex $query_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $query_result 3]
+}
+
+set env(TERM) "dumb"
+spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query api}
+expect {
+    -exact "Dirgo — choose a directory" {}
+    timeout {
+        puts stderr "TERM=dumb did not use the plain selector"
+        file delete -force $sandbox
+        exit 10
+    }
+}
+send -- "1\r"
+expect eof
+set dumb_result [wait]
+file delete -force $sandbox
+exit [lindex $dumb_result 3]

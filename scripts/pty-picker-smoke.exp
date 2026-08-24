@@ -1,0 +1,61 @@
+#!/usr/bin/expect -f
+
+set timeout 5
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-pty-[pid]-[clock seconds]"
+set fixture_root "$sandbox/filesystem"
+file mkdir "$fixture_root/Archive/api"
+file mkdir "$fixture_root/Services/api"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$fixture_root\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(TERM) "xterm-256color"
+set env(DGO_TUI_FULLSCREEN) 1
+spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query no-such-directory}
+
+expect {
+    -exact "Finding directories" {}
+    eof {
+        set result [wait]
+        file delete -force $sandbox
+        exit [lindex $result 3]
+    }
+    timeout {
+        puts stderr "picker did not render"
+        file delete -force $sandbox
+        exit 4
+    }
+}
+send -- "\025api"
+expect {
+    -exact "Archive" {}
+    timeout {
+        puts stderr "live query did not produce both matches"
+        file delete -force $sandbox
+        exit 5
+    }
+}
+expect {
+    -exact "Services" {}
+    timeout {
+        puts stderr "live query did not produce both matches"
+        file delete -force $sandbox
+        exit 5
+    }
+}
+send -- "\033\[B\r"
+expect eof
+set result [wait]
+file delete -force $sandbox
+exit [lindex $result 3]

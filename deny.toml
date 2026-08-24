@@ -1,0 +1,17 @@
+# Dependency policy for release builds. Keep this intentionally narrow: Dirgo
+# has no runtime network clients, and Git dependencies are not accepted.
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

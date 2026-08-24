@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest a focused improvement to directory navigation.
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the navigation task, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Include shell, terminal, and portability implications where relevant.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This does not require executing arbitrary shell text or sending telemetry.
+          required: true

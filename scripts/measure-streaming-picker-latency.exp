@@ -1,0 +1,88 @@
+#!/usr/bin/expect -f
+
+# Measures the interactive path against an already-created fixture. The index
+# refresh is deliberately outside the samples: this measures warm startup,
+# first frame, and first result while records are injected in the background.
+set timeout 20
+
+if {![info exists env(DGO_BIN)] || ![info exists env(DGO_FIXTURE_ROOT)]} {
+    puts stderr "DGO_BIN and DGO_FIXTURE_ROOT are required"
+    exit 2
+}
+if {![file isdirectory $env(DGO_FIXTURE_ROOT)]} {
+    puts stderr "DGO_FIXTURE_ROOT is not a directory"
+    exit 2
+}
+
+set samples 3
+if {[info exists env(DGO_STREAM_SAMPLES)]} {
+    set samples $env(DGO_STREAM_SAMPLES)
+}
+if {![string is integer -strict $samples] || $samples < 1 || $samples > 10} {
+    puts stderr "DGO_STREAM_SAMPLES must be an integer from 1 to 10"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-streaming-latency-[pid]-[clock seconds]"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$env(DGO_FIXTURE_ROOT)\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(TERM) "xterm-256color"
+set env(DGO_TUI_FULLSCREEN) 1
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+set refresh_result [wait]
+if {[lindex $refresh_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $refresh_result 3]
+}
+
+set paint_samples {}
+set result_samples {}
+for {set sample 0} {$sample < $samples} {incr sample} {
+    set paint_started [clock microseconds]
+    spawn -noecho /bin/sh -c {stty rows 24 columns 100; exec "$DGO_BIN" query node}
+    expect {
+        -exact "Dirgo" {
+            lappend paint_samples [expr {[clock microseconds] - $paint_started}]
+        }
+        timeout {
+            puts stderr "first paint timed out"
+            file delete -force $sandbox
+            exit 3
+        }
+    }
+    set result_started [clock microseconds]
+    expect {
+        -re {node-[0-9]+} {
+            lappend result_samples [expr {[clock microseconds] - $result_started}]
+        }
+        timeout {
+            puts stderr "first streamed result timed out"
+            file delete -force $sandbox
+            exit 4
+        }
+    }
+    send -- "\003"
+    expect eof
+    set picker_result [wait]
+    if {[lindex $picker_result 3] != 4} {
+        file delete -force $sandbox
+        exit [lindex $picker_result 3]
+    }
+}
+file delete -force $sandbox
+
+set sorted_paints [lsort -integer $paint_samples]
+set sorted_results [lsort -integer $result_samples]
+set middle [expr {$samples / 2}]
+puts [format "streaming first paint median: %.3f ms" [expr {[lindex $sorted_paints $middle] / 1000.0}]]
+puts [format "streaming first result median: %.3f ms" [expr {[lindex $sorted_results $middle] / 1000.0}]]
+exit 0
