@@ -2,18 +2,18 @@
 
 Date: 2026-08-24
 Baseline: `284a316` (`main`; content-equivalent privacy rewrite of the original baseline)
-Reviewed state: complete working-tree release candidate against the baseline
+Reviewed state: tagged release commit `dd7497d` against the baseline, with post-publication evidence update
 
 ## Executive summary
 
-**Product release decision: PASS for the `v0.1.3` candidate.** No open P0 or P1
+**Product release decision: PASS for public release `v0.1.3`.** No open P0 or P1
 security or correctness finding is known in the reviewed tree. The complete
-local preflight passes with the new terminal-injection and bounded-state
-regressions. Native macOS/Linux/Windows/dependency-policy CI remains a hard gate
-on the exact commit before tagging. GitHub Release `v0.1.2`, its four verified
-native archives, and the maintained Homebrew formula remain public while the
-patch candidate is verified. crates.io publication remains an external
-credential operation rather than an unfinished repository task.
+local preflight passes with the terminal-injection and bounded-state regressions.
+Protected macOS/Linux/Windows/dependency-policy CI passed on exact release commit
+`dd7497d`; tag workflow `32680020828` published all four archives and checksums.
+Independent archive, compatibility, lifecycle, and Homebrew drills passed.
+crates.io publication remains an external credential operation rather than an
+unfinished repository task or a blocker for the GitHub/Homebrew product release.
 
 | Severity | Found | Open |
 | --- | ---: | ---: |
@@ -24,17 +24,17 @@ credential operation rather than an unfinished repository task.
 
 ## What changed
 
-The baseline was a small foundation commit. The reviewed candidate adds the
+The baseline was a small foundation commit. The reviewed release adds the
 complete Rust CLI/TUI product: XDG configuration, redb index and state stores,
 parallel crawling, ranking, bookmarks and history, session navigation, safe
 Zsh/Bash/Fish wrappers, terminal picker, platform actions, diagnostics,
 benchmarks, PTY automation, CI, native release packaging, policy files, support
 material, and a reproducible demo.
 
-The tracked baseline diff is over 3,300 added Rust/documentation lines, plus the
-reviewed untracked release automation, benchmark, packaging, and documentation
-files. Because the repository has one baseline commit, the review treats the
-entire candidate as security-sensitive rather than sampling only recent hunks.
+The baseline diff spans the Rust implementation, release automation, benchmark,
+packaging, tests, and documentation. Because the repository began with one small
+baseline commit, the review treats the entire release as security-sensitive
+rather than sampling only recent hunks.
 
 ## Resolved findings
 
@@ -270,7 +270,7 @@ feature-gated developer binaries, Criterion compilation, offline package
 assembly, default install surface, package-content policy, generated shell
 syntax, PTY restoration and wrappers, and an external benchmark smoke.
 
-The `v0.1.3` candidate run passed 70 macOS unit tests and 22 CLI integration tests. The
+The `v0.1.3` release commit passed 70 macOS unit tests and 22 CLI integration tests. The
 additional Linux-only non-UTF-8 filesystem regression passed in a clean
 `rust:1.89-bookworm` container.
 
@@ -288,12 +288,15 @@ Additional evidence includes:
 - rendered VHS demo inspected frame by frame.
 - malformed-config Doctor/config-path recovery, terminal-control rendering, and
   bounded history/session regressions;
-- release run `32677282624`: four locked native test/build jobs plus gated
+- protected CI run `32679864525` on `dd7497d`: Ubuntu 22.04, macOS, native
+  Windows, and dependency-policy jobs all passed;
+- release run `32680020828`: four locked native test/build jobs plus gated
   checksum generation and GitHub publication;
-- independently downloaded `v0.1.2` checksums, native macOS ARM/Intel execution,
+- independently downloaded `v0.1.3` checksums, native macOS ARM/Intel execution,
   clean Debian 12 amd64 execution, and native Windows staged-binary execution;
-- remote `RudySource/homebrew-tap` install of `dirgo 0.1.2`, followed by linked
-  binary version/help checks and an archive upgrade/rollback drill.
+- archive lifecycle `0.1.2 → 0.1.3 → rollback 0.1.2 → restore 0.1.3`;
+- remote `RudySource/homebrew-tap` upgrade to `dirgo 0.1.3`, strict formula
+  audit, linked binary version check, and `brew test` (tap commit `2c421f6`).
 
 The tests are strong around the highest-risk boundaries. They do not replace a
 human screen-reader evaluation or clean-machine installer drills.
@@ -309,13 +312,13 @@ infer invariants. Searches for removed validation, escaping, schema, lock, and
 permission checks were therefore reviewed against the complete implementation;
 no unexplained removal remains.
 
-## Remaining publication gates
+## Remaining publication gate
 
-Push the exact `v0.1.3` candidate, require all protected native CI contexts, then
-let the immutable tag workflow publish and independently verify all archives.
-Update the maintained Homebrew formula only from those public checksums. Publish
-to crates.io after authenticating this workstation with an authorized registry
-token. No token is stored in the repository or local environment.
+GitHub Release and Homebrew distribution are complete. The crates.io channel
+can be published only after authenticating a clean release checkout with
+an authorized owner token. No token is stored in the repository or local
+environment, and credentials must never be pasted into an issue, commit, or
+chat transcript.
 
 Any code, dependency, workflow, or release-document change after this review
 invalidates the PASS until the affected gates are rerun.
@@ -325,7 +328,7 @@ invalidates the PASS until the affected gates are rerun.
 - Reduce duplicate `syn`, `hashbrown`, and benchmark-only `itertools` versions when the
   dependency graph permits, without raising MSRV accidentally.
 - Expand native Windows coverage when parent-shell PowerShell/cmd integration is
-  introduced; 0.1.2 intentionally ships archive CLI support without those wrappers.
+  introduced; 0.1.3 intentionally ships archive CLI support without those wrappers.
 - Keep package-manager expansion maintainer-owned; never publish unowned taps,
   buckets, or invented checksums.
 
