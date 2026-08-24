@@ -176,7 +176,7 @@ pub fn resolve(
             }
             return Err(DirgoError::User(format!(
                 "bookmark @{name} points to a missing directory: {}. Repair it with `dgo bookmark add {name} --path <directory>` or run `dgo bookmark remove {name}`",
-                bookmark.path.display()
+                crate::terminal::safe_path(&bookmark.path)
             )));
         }
     }

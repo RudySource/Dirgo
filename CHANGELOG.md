@@ -4,6 +4,23 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-24
+
+### Security
+
+- Escape terminal control characters and bidirectional overrides in every human-facing candidate, preview, diagnostic, bookmark, and error path while preserving the original filesystem path for navigation and machine-readable output.
+
+### Fixed
+
+- Make `dgo doctor` explain malformed configuration instead of failing before diagnostics, and keep `dgo config path` plus `dgo support` available when configuration or storage is broken.
+- Add concise descriptions to the top-level and nested Clap help so `dgo --help` explains actual workflows instead of listing blank command names.
+- Update navigation counters and bookmark-renaming collision checks inside single redb write transactions so concurrent invocations cannot lose visits or overwrite a bookmark.
+
+### Changed
+
+- Bound persistent history to 50,000 rows with batched strength/recency pruning, retain at most 256 transitions per shell session, and prune abandoned session records in batches.
+- Expand the README with verified shell persistence guidance, picker keys, platform limits, troubleshooting, uninstall, security behavior, and contributor onboarding.
+
 ## [0.1.2] - 2026-08-24
 
 ### Fixed

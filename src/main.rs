@@ -2,7 +2,8 @@ fn main() {
     match dirgo::app::run() {
         Ok(code) => std::process::exit(code),
         Err(error) => {
-            eprintln!("Dirgo: {error}");
+            let message = error.to_string();
+            eprintln!("Dirgo: {}", dirgo::terminal::safe_text(&message));
             if std::env::var_os("DGO_LOG").is_some() {
                 eprintln!("\nDebug: {error:?}");
             }

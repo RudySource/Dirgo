@@ -6,19 +6,21 @@ Reviewed state: complete working-tree release candidate against the baseline
 
 ## Executive summary
 
-**Product release decision: PASS.** No open P0 or P1 security or correctness
-finding is known in the reviewed tree. Local preflight and remote
-macOS/Linux/Windows/dependency-policy CI pass; the single Dependabot alert is
-fixed. GitHub Release `v0.1.2`, its four verified native archives, and the
-maintained Homebrew formula are public. crates.io publication remains an
-external credential operation rather than an unfinished repository task.
+**Product release decision: PASS for the `v0.1.3` candidate.** No open P0 or P1
+security or correctness finding is known in the reviewed tree. The complete
+local preflight passes with the new terminal-injection and bounded-state
+regressions. Native macOS/Linux/Windows/dependency-policy CI remains a hard gate
+on the exact commit before tagging. GitHub Release `v0.1.2`, its four verified
+native archives, and the maintained Homebrew formula remain public while the
+patch candidate is verified. crates.io publication remains an external
+credential operation rather than an unfinished repository task.
 
 | Severity | Found | Open |
 | --- | ---: | ---: |
 | P0 critical | 0 | 0 |
-| P1 high | 7 | 0 |
-| P2 medium | 11 | 0 |
-| P3 low | 1 | 0 |
+| P1 high | 8 | 0 |
+| P2 medium | 14 | 0 |
+| P3 low | 2 | 0 |
 
 ## What changed
 
@@ -63,6 +65,8 @@ asserts the resulting working directory.
 existing name silently replaced that bookmark. Adds now canonicalize and
 validate the destination, in-place repairs preserve metadata, and rename
 collisions fail without modifying either bookmark.
+The collision check and rename now share one write transaction, so concurrent
+processes cannot bypass the same invariant.
 
 ### R5 — resumable benchmark fixture accepted a symlink root (P2)
 
@@ -174,6 +178,52 @@ run on Ubuntu 22.04 and inspect the final dynamic symbol table, rejecting any
 binary that requires a glibc symbol newer than 2.35. The immutable `v0.1.1`
 release is explicitly marked superseded; the corrected release is `v0.1.2`.
 
+### R20 — untrusted filenames could inject terminal controls (P1)
+
+Indexed UTF-8 directory names were rendered directly by the Ratatui picker,
+plain fallback, diagnostics, and several human-facing commands. A directory
+created by an extracted archive or repository could therefore emit ANSI/OSC
+controls or invisible bidirectional overrides when a user searched for it.
+Human-facing output now escapes C0/C1 controls and bidi overrides. Direct TTY
+path output is escaped, while redirected stdout and shell command substitution
+retain the exact path required by the navigation protocol. Unit, render, and
+CLI regressions cover Unicode preservation, OSC/ANSI bytes, bidi text, and the
+ambiguous non-TTY path.
+
+### R21 — persistent navigation state grew without a limit (P2)
+
+Every newly visited directory, shell transition, and generated shell-session ID
+could remain in redb indefinitely. History is now capped at 50,000 rows and
+pruned to 45,000 by recency and visit strength. Each session retains its latest
+256 transitions, while session records prune from 256 to 192 without evicting
+the session currently being written. Legacy session JSON remains readable via a
+defaulted timestamp field, so the schema stays backward-compatible.
+
+### R22 — diagnostics depended on valid configuration (P2)
+
+`dgo doctor` and `dgo config path` loaded the configuration before they could
+diagnose it. A malformed TOML file therefore hid its own location and prevented
+the recovery command from running. Config-path and support output now bypass
+storage/config loading, while Doctor reports the parse error safely, continues
+independent checks with defaults, and exits non-zero after completing.
+
+### R23 — generated CLI help omitted command purpose (P3)
+
+Clap listed every subcommand without descriptions, forcing a new user back to
+the README. Top-level and nested workflows now have concise, tested help text;
+the README also documents persistent shell setup, exact picker keys, platform
+limits, troubleshooting, uninstall, security behavior, and contributor setup.
+
+### R24 — concurrent state updates used split read/write transactions (P2)
+
+Navigation read the existing visit counter before opening its write transaction,
+so simultaneous invocations could both increment the same old value and lose a
+visit. Bookmark rename checked the destination name in the same split pattern,
+allowing a competing rename to violate the no-overwrite invariant. Both
+operations now perform read-check-update inside one serialized redb write
+transaction. Barrier-driven thread regressions prove all 320 concurrent visits
+are retained and exactly one competing rename succeeds.
+
 ## Adversarial analysis
 
 - Generated wrappers quote command substitution and invoke `builtin cd --`;
@@ -195,6 +245,10 @@ release is explicitly marked superseded; the corrected release is `v0.1.2`.
   symlinked configured roots have regression coverage.
 - Normal runtime behavior has no network, telemetry, plugin execution, or update
   channel.
+- Filesystem text crosses a display boundary before terminal rendering; raw
+  paths are emitted only when stdout is redirected for shell or machine use.
+- State retention is bounded and batch-pruned in serialized redb write
+  transactions; the current shell session is protected during pruning.
 
 ## Blast radius
 
@@ -204,6 +258,8 @@ release is explicitly marked superseded; the corrected release is `v0.1.2`.
 | filesystem index | crawler/refresh | resolver, picker, repo, stats | stale/wrong candidates | lock, validation, atomic rename, quarantine/rebuild |
 | persistent state | bookmarks/history/session/import | ranking, recent, back/forward | user data loss | schema gate, transactions, backup recovery, collision checks |
 | process execution | open/copy/editor/zoxide | OS helpers | command injection or wrong target | fixed executable/args, no shell, stdin clipboard |
+| terminal display | paths, query, preview entries | TUI, fallback, diagnostics | ANSI/OSC injection or bidi spoofing | centralized escaping, TTY-aware raw-path boundary, regressions |
+| navigation retention | visits and shell sessions | ranking, recent, back/forward | unbounded state or loss of active session | hard caps, batch pruning, protected current session, legacy decode |
 | release pipeline | tag workflow | four platform archives | compromised or mismatched release | immutable actions, tag/version gate, locked builds, checksums |
 
 ## Test coverage and evidence
@@ -214,7 +270,7 @@ feature-gated developer binaries, Criterion compilation, offline package
 assembly, default install surface, package-content policy, generated shell
 syntax, PTY restoration and wrappers, and an external benchmark smoke.
 
-The final run passed 61 macOS unit tests and 18 CLI integration tests. The
+The `v0.1.3` candidate run passed 70 macOS unit tests and 22 CLI integration tests. The
 additional Linux-only non-UTF-8 filesystem regression passed in a clean
 `rust:1.89-bookworm` container.
 
@@ -230,6 +286,8 @@ Additional evidence includes:
 - 1M-directory PTY results of 55.180 ms first paint and 35.236 ms first useful
   result, within the 100/100 ms release budget;
 - rendered VHS demo inspected frame by frame.
+- malformed-config Doctor/config-path recovery, terminal-control rendering, and
+  bounded history/session regressions;
 - release run `32677282624`: four locked native test/build jobs plus gated
   checksum generation and GitHub publication;
 - independently downloaded `v0.1.2` checksums, native macOS ARM/Intel execution,
@@ -251,10 +309,13 @@ infer invariants. Searches for removed validation, escaping, schema, lock, and
 permission checks were therefore reviewed against the complete implementation;
 no unexplained removal remains.
 
-## Remaining publication gate
+## Remaining publication gates
 
-Publish to crates.io after authenticating this workstation with an authorized
-registry token. No token is stored in the repository or local environment.
+Push the exact `v0.1.3` candidate, require all protected native CI contexts, then
+let the immutable tag workflow publish and independently verify all archives.
+Update the maintained Homebrew formula only from those public checksums. Publish
+to crates.io after authenticating this workstation with an authorized registry
+token. No token is stored in the repository or local environment.
 
 Any code, dependency, workflow, or release-document change after this review
 invalidates the PASS until the affected gates are rerun.

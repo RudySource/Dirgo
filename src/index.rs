@@ -382,7 +382,10 @@ fn scan(config: &Config) -> Result<ScanOutput> {
     for root in &config.roots {
         let root = crate::paths::expand_path(&root.to_string_lossy())?;
         if !root.is_dir() || fs::read_dir(&root).is_err() {
-            tracing::warn!(path = %root.display(), "index root is not readable");
+            tracing::warn!(
+                path = %crate::terminal::safe_path(&root),
+                "index root is not readable"
+            );
             continue;
         }
         if let Ok(mut output) = output.lock() {

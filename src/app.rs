@@ -20,6 +20,7 @@ use crate::{
     search::{self, SearchContext},
     shell,
     state::StateStore,
+    terminal,
 };
 
 const EXIT_NO_MATCH: i32 = 3;
@@ -149,11 +150,28 @@ pub fn run() -> Result<i32> {
             print!("{}", shell::completions(*selected));
             return Ok(0);
         }
+        Some(Command::Support) => {
+            print_support();
+            return Ok(0);
+        }
         _ => {}
     }
 
     let paths = AppPaths::discover()?;
-    let mut config = Config::load(&paths)?;
+    if matches!(
+        &cli.command,
+        Some(Command::Config {
+            command: ConfigCommand::Path
+        })
+    ) {
+        print_output_path(&paths.config_file);
+        return Ok(0);
+    }
+    let config_result = Config::load(&paths);
+    if cli.doctor || matches!(&cli.command, Some(Command::Doctor)) {
+        return doctor(&paths, config_result);
+    }
+    let mut config = config_result?;
     if cli.no_color {
         config.ui.accent = "none".into();
     }
@@ -168,9 +186,6 @@ pub fn run() -> Result<i32> {
             summary.directories, summary.projects
         );
         return Ok(0);
-    }
-    if cli.doctor || matches!(cli.command, Some(Command::Doctor)) {
-        return doctor(&paths, &config);
     }
     if cli.bookmarks || matches!(cli.command, Some(Command::Bookmarks)) {
         return list_bookmarks(&paths);
@@ -209,12 +224,7 @@ pub fn run() -> Result<i32> {
         Some(Command::Bookmark { command }) => bookmark_command(&paths, command),
         Some(Command::Stats) => stats(&paths),
         Some(Command::Config { command }) => config_command(&paths, &config, command),
-        Some(Command::Support) => {
-            println!(
-                "Dirgo support\n\nRun `dgo doctor`, remove personal paths from its output, then use the issue forms at:\nhttps://github.com/RudySource/Dirgo/issues\n\nFor vulnerabilities, follow SECURITY.md and do not open a public issue."
-            );
-            Ok(0)
-        }
+        Some(Command::Support) => unreachable!("handled before storage access"),
         Some(Command::Resolve(args)) => shell_resolve(&paths, &config, args),
         Some(Command::Refresh | Command::Doctor | Command::Bookmarks) => {
             unreachable!("handled above")
@@ -283,7 +293,7 @@ fn open_index_with_recovery(paths: &AppPaths, config: &Config) -> Result<IndexSt
             let backup = paths::preserve_for_recovery(&paths.index_file, "corrupt", unix_now())?;
             eprintln!(
                 "Dirgo quarantined a corrupt index at {} and is rebuilding it.",
-                backup.display()
+                terminal::safe_path(&backup)
             );
             index::rebuild(paths, config)?;
             IndexStore::open(&paths.index_file)
@@ -310,7 +320,7 @@ fn load_state_context(paths: &AppPaths) -> Result<LoadedState> {
             let backup = paths::preserve_for_recovery(&paths.state_file, "corrupt", unix_now())?;
             eprintln!(
                 "Dirgo backed up corrupt state to {} and started with empty state.",
-                backup.display()
+                terminal::safe_path(&backup)
             );
             load()
         }
@@ -361,7 +371,7 @@ fn resolve_query(
             if !bookmark.path.is_dir() {
                 return Err(DirgoError::User(format!(
                     "bookmark @{name} points to a missing directory: {}. Repair it with `dgo bookmark add {name} --path <directory>` or run `dgo bookmark remove {name}`",
-                    bookmark.path.display()
+                    terminal::safe_path(&bookmark.path)
                 )));
             }
             return Ok(QueryOutcome::resolved(QueryResponse {
@@ -484,7 +494,7 @@ fn default_query(
         paths.ensure_dirs()?;
         StateStore::open(&paths.state_file)?.add_bookmark(name, cwd)?;
         if !shell_mode {
-            println!("Saved @{name} → {}", cwd.display());
+            println!("Saved @{name} → {}", terminal::safe_path(cwd));
         }
         return Ok(0);
     }
@@ -636,11 +646,11 @@ fn complete_action(
             if shell_mode {
                 record_navigation(paths, origin, &path)?;
             }
-            println!("{}", path.display());
+            print_output_path(&path);
             Ok(0)
         }
         Action::Print => {
-            println!("{}", path.display());
+            print_output_path(&path);
             Ok(0)
         }
         Action::Open | Action::Copy | Action::Editor => {
@@ -656,7 +666,7 @@ fn ensure_existing_directory(path: &Path) -> Result<()> {
     } else {
         Err(DirgoError::User(format!(
             "directory no longer exists: {}. Run `dgo refresh`; repair or remove a bookmark if it points here",
-            path.display()
+            terminal::safe_path(path)
         )))
     }
 }
@@ -710,7 +720,7 @@ fn choose_candidate(
     let visible = candidates.iter().take(12).collect::<Vec<_>>();
     if !io::stdin().is_terminal() {
         for candidate in visible {
-            eprintln!("{}", candidate.path.display());
+            eprintln!("{}", terminal::safe_path(&candidate.path));
         }
         eprintln!("Dirgo needs an interactive terminal to choose an ambiguous result.");
         return Ok(crate::tui::PickOutcome::Cancelled);
@@ -737,8 +747,8 @@ fn choose_candidate(
             "{:>2}. {} {}\n    {}",
             index + 1,
             marker,
-            candidate.basename,
-            candidate.display_path
+            terminal::safe_text(&candidate.basename),
+            terminal::safe_text(&candidate.display_path)
         );
     }
     eprint!("\nSelection [1-{}], or Enter to cancel: ", visible.len());
@@ -784,7 +794,7 @@ fn shell_resolve(paths: &AppPaths, config: &Config, args: ResolveArgs) -> Result
                 return Err(DirgoError::NoMatch("project root".into()));
             };
             record_navigation(paths, &args.cwd, &path)?;
-            println!("{}", path.display());
+            print_output_path(&path);
             Ok(0)
         }
         [command] if command == "back" => navigation_command(paths, Direction::Back),
@@ -803,7 +813,7 @@ fn print_project_root(cwd: PathBuf) -> Result<i32> {
     let Some((path, _)) = index::find_project_root(&cwd) else {
         return Err(DirgoError::NoMatch("project root".into()));
     };
-    println!("{}", path.display());
+    print_output_path(&path);
     Ok(0)
 }
 
@@ -926,7 +936,7 @@ fn navigation_command(paths: &AppPaths, direction: Direction) -> Result<i32> {
     };
     ensure_existing_directory(&path)?;
     shell::validate_output_path(&path)?;
-    println!("{}", path.display());
+    print_output_path(&path);
     Ok(0)
 }
 
@@ -937,7 +947,7 @@ fn bookmark_command(paths: &AppPaths, command: BookmarkCommand) -> Result<i32> {
         BookmarkCommand::Add { name, path } => {
             let path = path.unwrap_or(current_dir()?);
             let bookmark = state.add_bookmark(&name, &path)?;
-            println!("Saved @{name} → {}", bookmark.path.display());
+            println!("Saved @{name} → {}", terminal::safe_path(&bookmark.path));
         }
         BookmarkCommand::Remove { name } => {
             if !state.remove_bookmark(&name)? {
@@ -984,7 +994,11 @@ fn list_bookmarks(paths: &AppPaths) -> Result<i32> {
         println!("No bookmarks yet.\n\nCreate one with: dgo +name");
     } else {
         for bookmark in bookmarks {
-            println!("@{:<20} {}", bookmark.name, bookmark.path.display());
+            println!(
+                "@{:<20} {}",
+                bookmark.name,
+                terminal::safe_path(&bookmark.path)
+            );
         }
     }
     Ok(0)
@@ -992,7 +1006,7 @@ fn list_bookmarks(paths: &AppPaths) -> Result<i32> {
 
 fn config_command(paths: &AppPaths, config: &Config, command: ConfigCommand) -> Result<i32> {
     match command {
-        ConfigCommand::Path => println!("{}", paths.config_file.display()),
+        ConfigCommand::Path => print_output_path(&paths.config_file),
         ConfigCommand::Show => print!(
             "{}",
             toml::to_string_pretty(config)
@@ -1002,10 +1016,38 @@ fn config_command(paths: &AppPaths, config: &Config, command: ConfigCommand) -> 
     Ok(0)
 }
 
-fn doctor(paths: &AppPaths, config: &Config) -> Result<i32> {
+fn print_support() {
+    println!(
+        "Dirgo support\n\nRun `dgo doctor`, remove personal paths from its output, then use the issue forms at:\nhttps://github.com/RudySource/Dirgo/issues\n\nFor vulnerabilities, follow SECURITY.md and do not open a public issue."
+    );
+}
+
+fn print_output_path(path: &Path) {
+    if io::stdout().is_terminal() {
+        println!("{}", terminal::safe_path(path));
+    } else {
+        println!("{}", path.display());
+    }
+}
+
+fn doctor(paths: &AppPaths, config: Result<Config>) -> Result<i32> {
     println!("Dirgo Doctor\n");
     println!("✓ version        {}", env!("CARGO_PKG_VERSION"));
-    println!("✓ config         valid (schema {})", config.schema_version);
+    let (config, config_valid) = match config {
+        Ok(config) => {
+            println!("✓ config         valid (schema {})", config.schema_version);
+            (config, true)
+        }
+        Err(error) => {
+            println!(
+                "! config         invalid at {}: {}",
+                terminal::safe_path(&paths.config_file),
+                terminal::safe_text(&error.to_string())
+            );
+            println!("  Repair or move that file, then rerun `dgo doctor`.");
+            (Config::default(), false)
+        }
+    };
     println!(
         "{} integration    {}",
         if env::var_os("DGO_SESSION_ID").is_some() {
@@ -1022,8 +1064,8 @@ fn doctor(paths: &AppPaths, config: &Config) -> Result<i32> {
     paths.ensure_dirs()?;
     println!(
         "✓ storage        cache={} state={}",
-        paths.cache_dir.display(),
-        paths.state_dir.display()
+        terminal::safe_path(&paths.cache_dir),
+        terminal::safe_path(&paths.state_dir)
     );
     if paths.index_file.exists() {
         match IndexStore::open(&paths.index_file).and_then(|store| store.summary()) {
@@ -1049,7 +1091,10 @@ fn doctor(paths: &AppPaths, config: &Config) -> Result<i32> {
                 };
                 println!("{marker} index          {detail}");
             }
-            Err(error) => println!("! index          unhealthy ({error}); run `dgo refresh`"),
+            Err(error) => println!(
+                "! index          unhealthy ({}); run `dgo refresh`",
+                terminal::safe_text(&error.to_string())
+            ),
         }
     } else {
         println!("! index          missing; it will be built on first search");
@@ -1074,7 +1119,7 @@ fn doctor(paths: &AppPaths, config: &Config) -> Result<i32> {
     if let Some((path, bytes)) = oversized_shell_startup() {
         println!(
             "! shell startup  {} is {:.1} MiB; a large shell config can delay or crash terminals",
-            path.display(),
+            terminal::safe_path(&path),
             bytes as f64 / 1_048_576.0
         );
     } else {
@@ -1082,7 +1127,7 @@ fn doctor(paths: &AppPaths, config: &Config) -> Result<i32> {
     }
     println!("✓ platform       {} {}", env::consts::OS, env::consts::ARCH);
     println!("\nDoctor completed. Lines marked ! need attention but do not block all commands.");
-    Ok(0)
+    Ok(if config_valid { 0 } else { 1 })
 }
 
 fn oversized_shell_startup() -> Option<(PathBuf, u64)> {
@@ -1114,7 +1159,7 @@ fn stats(paths: &AppPaths) -> Result<i32> {
     let most = histories
         .iter()
         .max_by_key(|history| history.visit_count)
-        .map(|history| history.path.display().to_string())
+        .map(|history| terminal::safe_path(&history.path))
         .unwrap_or_else(|| "—".into());
     let age = if built_at == 0 {
         "—".into()

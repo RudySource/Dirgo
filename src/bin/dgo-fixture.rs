@@ -8,7 +8,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("dgo-fixture: {message}");
+            eprintln!("dgo-fixture: {}", dirgo::terminal::safe_text(&message));
             ExitCode::from(2)
         }
     }
@@ -64,7 +64,7 @@ fn run() -> Result<(), String> {
         println!(
             "created {} directories at {} (fanout {})",
             directories,
-            output.display(),
+            dirgo::terminal::safe_path(&output),
             fanout
         );
     } else {
@@ -72,7 +72,7 @@ fn run() -> Result<(), String> {
             "fixture progress: {}/{} directories at {} (resume with --resume)",
             progress.completed,
             progress.target,
-            output.display()
+            dirgo::terminal::safe_path(&output)
         );
     }
     Ok(())

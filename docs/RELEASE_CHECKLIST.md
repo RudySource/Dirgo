@@ -2,7 +2,18 @@
 
 This checklist is a publication gate, not a promise of future work. Do not create a Git tag, GitHub release, Homebrew formula, or crates.io publication until every applicable item is evidenced in the release record.
 
-Release status on 2026-08-24: implementation review has no open P0/P1 finding; default installation exposes only `dgo`; native Ubuntu 22.04, macOS, and Windows CI, actionlint, cargo-deny, shell/PTY evidence, and the non-publishing preflight pass. Git history and working-tree secret scans pass, commit identity uses GitHub noreply, and rendered assets contain no user-specific metadata. GitHub Release `v0.1.2` and the maintained `RudySource/homebrew-tap` formula are public. The only unavailable publication is crates.io, which requires an external registry credential.
+Release status on 2026-08-24: `v0.1.3` is the reviewed patch candidate. Its complete local preflight passes with 70 unit and 22 Unix CLI integration tests, package/default-install checks, and Zsh/Bash/Fish PTY gates. The differential review has no open P0/P1 finding. Native Ubuntu 22.04, macOS, Windows, dependency-policy CI, tag publication, downloaded-archive drills, and the Homebrew checksum update remain mandatory gates on the exact candidate. GitHub Release `v0.1.2` and the maintained `RudySource/homebrew-tap` formula remain the current public distribution until those gates complete. crates.io additionally requires an external registry credential.
+
+## 0.1.3 patch delta
+
+- [x] Terminal-facing output escapes control characters and bidirectional overrides; redirected stdout retains exact shell/machine path semantics.
+- [x] History, session transitions, and abandoned shell-session records have tested hard bounds and backward-compatible state decoding.
+- [x] Concurrent visit increments and competing bookmark renames preserve their invariants inside serialized write transactions.
+- [x] Doctor, config-path, and support recovery flows work with malformed configuration or unavailable storage.
+- [x] CLI help and README cover the actual new-user, picker, platform, recovery, uninstall, and contributor workflows.
+- [ ] Protected native CI passes on the exact candidate commit.
+- [ ] The `v0.1.3` tag workflow publishes four version-matched archives and checksums; independent download/install drills pass.
+- [ ] The maintained Homebrew tap installs `0.1.3` using the public archive checksums.
 
 ## Code and package
 
@@ -34,7 +45,7 @@ Run these steps in order. Stop at the first failed gate.
 2. Commit the complete release candidate, push it, and wait for macOS, Linux, Windows, and dependency-policy CI to pass on that exact commit.
 3. Run `cargo publish --dry-run --locked` and verify that the `dirgo` crate name is still publishable for this owner.
 4. Perform the manual accessibility/terminal pass from the built commit, including the plain fallback.
-5. Create and push only the matching annotated tag (`v0.1.2` for package version `0.1.2`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag; `v0.1.1` is retained as a superseded release whose Linux install drill exposed its glibc 2.39 requirement. Neither historical tag may be moved or reused.
+5. Create and push only the matching annotated tag (`v0.1.3` for package version `0.1.3`). The tag-gated workflow builds and tests all four targets before creating the GitHub release. `v0.1.0` is retained as a failed gate tag; `v0.1.1` is retained as a superseded release whose Linux install drill exposed its glibc 2.39 requirement. No historical tag may be moved or reused.
 6. Download every release asset plus `SHA256SUMS`; verify hashes independently on macOS, Linux, and Windows.
 7. Exercise clean install, upgrade, and rollback with the downloaded archives. Record commands, host details, and results in the release notes.
 8. Update `packaging/homebrew/dirgo.rb` with the real version and published checksums; publish it only in the maintained `RudySource/homebrew-tap` after the archive drills pass.
