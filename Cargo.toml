@@ -1,6 +1,7 @@
 [package]
 name = "dirgo"
-version = "0.1.2"
+version = "0.1.3"
+default-run = "dgo"
 edition = "2024"
 rust-version = "1.89"
 description = "Instant directory navigation for your terminal"

@@ -53,6 +53,31 @@ fn toml_string(path: &Path) -> String {
 }
 
 #[test]
+fn help_explains_public_commands_and_nested_workflows() {
+    Command::cargo_bin("dgo")
+        .expect("binary")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Print parent-shell integration")
+                .and(predicate::str::contains(
+                    "Rebuild the disposable filesystem index",
+                ))
+                .and(predicate::str::contains("Diagnose configuration, storage")),
+        );
+    Command::cargo_bin("dgo")
+        .expect("binary")
+        .args(["bookmark", "add", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Create a bookmark or repair its destination")
+                .and(predicate::str::contains("Destination directory")),
+        );
+}
+
+#[test]
 fn refresh_then_exact_query_returns_only_the_path() {
     let fixture = Fixture::new();
     fixture
@@ -120,6 +145,19 @@ fn ambiguous_query_is_nonzero_and_lists_candidates_on_stderr() {
 }
 
 #[test]
+fn ambiguous_diagnostics_escape_terminal_control_characters_in_paths() {
+    let fixture = Fixture::new();
+    let root = fixture.temp.path().join("filesystem");
+    fs::create_dir(root.join("danger\u{1b}[31m")).expect("control-name directory");
+    fs::create_dir(root.join("danger-other")).expect("second directory");
+    fixture.command().arg("refresh").assert().success();
+
+    fixture.command().arg("danger").assert().code(4).stderr(
+        predicate::str::contains("danger\\x1b[31m").and(predicate::str::contains("\u{1b}").not()),
+    );
+}
+
+#[test]
 fn ambiguous_json_exposes_explainable_score_components() {
     let fixture = Fixture::new();
     fixture.command().arg("refresh").assert().success();
@@ -181,6 +219,43 @@ fn doctor_reports_operational_checks_without_building_an_index() {
                 .and(predicate::str::contains("shell startup")),
         );
     assert!(!fixture.temp.path().join("cache/dirgo/index.redb").exists());
+}
+
+#[test]
+fn doctor_and_config_path_work_when_configuration_is_broken() {
+    let fixture = Fixture::new();
+    let config = fixture.temp.path().join("config/dirgo/config.toml");
+    fs::write(&config, "schema_version = nope\n").expect("broken config");
+
+    fixture
+        .command()
+        .args(["config", "path"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(config.display().to_string()));
+    fixture.command().arg("doctor").assert().code(1).stdout(
+        predicate::str::contains("config         invalid")
+            .and(predicate::str::contains("Repair or move that file"))
+            .and(predicate::str::contains("Doctor completed")),
+    );
+}
+
+#[test]
+fn support_does_not_require_valid_configuration_or_storage() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let blocked = temp.path().join("blocked");
+    fs::write(&blocked, "not a directory").expect("blocked path");
+    Command::cargo_bin("dgo")
+        .expect("binary")
+        .env("XDG_CONFIG_HOME", &blocked)
+        .env("XDG_CACHE_HOME", &blocked)
+        .env("XDG_STATE_HOME", &blocked)
+        .arg("support")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "https://github.com/RudySource/Dirgo/issues",
+        ));
 }
 
 #[test]

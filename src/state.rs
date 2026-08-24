@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DirgoError, Result,
     model::{Bookmark, PathHistory, unix_now},
-    paths,
+    paths, terminal,
 };
 
 const BOOKMARKS: TableDefinition<&str, &[u8]> = TableDefinition::new("bookmarks");
@@ -17,11 +17,18 @@ const HISTORY: TableDefinition<&str, &[u8]> = TableDefinition::new("history");
 const SESSIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("sessions");
 const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 const SCHEMA_VERSION: u64 = 1;
+const MAX_HISTORY_ENTRIES: usize = 50_000;
+const RETAINED_HISTORY_ENTRIES: usize = 45_000;
+const MAX_SESSION_ENTRIES: usize = 256;
+const MAX_SESSIONS: usize = 256;
+const RETAINED_SESSIONS: usize = 192;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct NavigationSession {
     entries: Vec<PathBuf>,
     cursor: usize,
+    updated_at: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +49,7 @@ impl StateStore {
                 let backup = paths::preserve_for_recovery(path, "corrupt", unix_now())?;
                 eprintln!(
                     "Dirgo backed up corrupt state to {} and started with empty state.",
-                    backup.display()
+                    terminal::safe_path(&backup)
                 );
                 Self::open_checked(path)
             }
@@ -134,7 +141,7 @@ impl StateStore {
         if !path.is_dir() {
             return Err(DirgoError::User(format!(
                 "{} is not a directory",
-                path.display()
+                terminal::safe_path(path)
             )));
         }
         let path = path
@@ -175,19 +182,23 @@ impl StateStore {
 
     pub fn rename_bookmark(&self, old: &str, new: &str) -> Result<()> {
         validate_bookmark_name(new)?;
-        let Some(mut bookmark) = self.bookmark(old)? else {
-            return Err(DirgoError::BookmarkMissing(old.into()));
-        };
-        if old != new && self.bookmark(new)?.is_some() {
-            return Err(DirgoError::User(format!(
-                "bookmark @{new} already exists; remove it explicitly before renaming"
-            )));
-        }
-        bookmark.name = new.into();
-        let value = serde_json::to_vec(&bookmark)?;
         let write = self.db.begin_write()?;
         {
             let mut table = write.open_table(BOOKMARKS)?;
+            let Some(mut bookmark): Option<Bookmark> = table
+                .get(old)?
+                .map(|value| serde_json::from_slice(value.value()))
+                .transpose()?
+            else {
+                return Err(DirgoError::BookmarkMissing(old.into()));
+            };
+            if old != new && table.get(new)?.is_some() {
+                return Err(DirgoError::User(format!(
+                    "bookmark @{new} already exists; remove it explicitly before renaming"
+                )));
+            }
+            bookmark.name = new.into();
+            let value = serde_json::to_vec(&bookmark)?;
             table.remove(old)?;
             table.insert(new, value.as_slice())?;
         }
@@ -206,22 +217,26 @@ impl StateStore {
         }
         let key = destination.to_string_lossy();
         let now = unix_now();
-        let mut history = self.history(destination)?.unwrap_or(PathHistory {
-            path: destination.to_path_buf(),
-            visit_count: 0,
-            first_visit: now,
-            last_visit: now,
-        });
-        history.visit_count += 1;
-        history.last_visit = now;
-        let value = serde_json::to_vec(&history)?;
         let write = self.db.begin_write()?;
         {
-            write
-                .open_table(HISTORY)?
-                .insert(key.as_ref(), value.as_slice())?;
+            let mut table = write.open_table(HISTORY)?;
+            let mut history: PathHistory = table
+                .get(key.as_ref())?
+                .map(|value| serde_json::from_slice(value.value()))
+                .transpose()?
+                .unwrap_or(PathHistory {
+                    path: destination.to_path_buf(),
+                    visit_count: 0,
+                    first_visit: now,
+                    last_visit: now,
+                });
+            history.visit_count = history.visit_count.saturating_add(1);
+            history.last_visit = now;
+            let value = serde_json::to_vec(&history)?;
+            table.insert(key.as_ref(), value.as_slice())?;
         }
         write.commit()?;
+        self.prune_history(MAX_HISTORY_ENTRIES, RETAINED_HISTORY_ENTRIES)?;
         if let Some(session_id) = session_id {
             self.push_transition(session_id, from, destination)?;
         }
@@ -279,12 +294,14 @@ impl StateStore {
             }
         }
         write.commit()?;
+        self.prune_history(MAX_HISTORY_ENTRIES, RETAINED_HISTORY_ENTRIES)?;
         Ok(HistoryImportSummary {
             imported,
             unchanged,
         })
     }
 
+    #[cfg(test)]
     fn history(&self, path: &Path) -> Result<Option<PathHistory>> {
         let read = self.db.begin_read()?;
         let table = read.open_table(HISTORY)?;
@@ -306,12 +323,15 @@ impl StateStore {
     }
 
     fn save_session(&self, id: &str, session: &NavigationSession) -> Result<()> {
-        let value = serde_json::to_vec(session)?;
+        let mut session = session.clone();
+        session.updated_at = unix_now();
+        let value = serde_json::to_vec(&session)?;
         let write = self.db.begin_write()?;
         {
             write.open_table(SESSIONS)?.insert(id, value.as_slice())?;
         }
         write.commit()?;
+        self.prune_sessions(MAX_SESSIONS, RETAINED_SESSIONS, Some(id))?;
         Ok(())
     }
 
@@ -333,6 +353,11 @@ impl StateStore {
             session.entries.truncate(session.cursor + 1);
             session.entries.push(destination.to_path_buf());
             session.cursor = session.entries.len() - 1;
+        }
+        if session.entries.len() > MAX_SESSION_ENTRIES {
+            let excess = session.entries.len() - MAX_SESSION_ENTRIES;
+            session.entries.drain(..excess);
+            session.cursor = session.cursor.saturating_sub(excess);
         }
         self.save_session(id, &session)
     }
@@ -371,6 +396,80 @@ impl StateStore {
             cursor += 1;
         }
         Ok(None)
+    }
+
+    fn prune_history(&self, maximum: usize, retained: usize) -> Result<()> {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(HISTORY)?;
+        if table.len()? as usize <= maximum {
+            return Ok(());
+        }
+        drop(table);
+        drop(read);
+
+        let write = self.db.begin_write()?;
+        {
+            let mut table = write.open_table(HISTORY)?;
+            let mut rows = Vec::with_capacity(table.len()? as usize);
+            for item in table.iter()? {
+                let (key, value) = item?;
+                let history: PathHistory = serde_json::from_slice(value.value())?;
+                rows.push((
+                    key.value().to_owned(),
+                    history.last_visit,
+                    history.visit_count,
+                ));
+            }
+            rows.sort_unstable_by(|a, b| {
+                a.1.cmp(&b.1)
+                    .then_with(|| a.2.cmp(&b.2))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            let remove = rows.len().saturating_sub(retained.min(maximum));
+            for (key, _, _) in rows.into_iter().take(remove) {
+                table.remove(key.as_str())?;
+            }
+        }
+        write.commit()?;
+        Ok(())
+    }
+
+    fn prune_sessions(
+        &self,
+        maximum: usize,
+        retained: usize,
+        protected_id: Option<&str>,
+    ) -> Result<()> {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(SESSIONS)?;
+        if table.len()? as usize <= maximum {
+            return Ok(());
+        }
+        drop(table);
+        drop(read);
+
+        let write = self.db.begin_write()?;
+        {
+            let mut table = write.open_table(SESSIONS)?;
+            let mut sessions = Vec::with_capacity(table.len()? as usize);
+            for item in table.iter()? {
+                let (key, value) = item?;
+                let session: NavigationSession = serde_json::from_slice(value.value())?;
+                sessions.push((key.value().to_owned(), session.updated_at));
+            }
+            sessions.sort_unstable_by(|a, b| {
+                (protected_id == Some(a.0.as_str()))
+                    .cmp(&(protected_id == Some(b.0.as_str())))
+                    .then_with(|| a.1.cmp(&b.1))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            let remove = sessions.len().saturating_sub(retained.min(maximum));
+            for (key, _) in sessions.into_iter().take(remove) {
+                table.remove(key.as_str())?;
+            }
+        }
+        write.commit()?;
+        Ok(())
     }
 }
 
@@ -583,6 +682,168 @@ mod tests {
         assert_eq!(merged.visit_count, 10);
         assert_eq!(merged.last_visit, native.last_visit);
         assert_eq!(merged.first_visit, native.first_visit);
+    }
+
+    #[test]
+    fn concurrent_navigation_updates_do_not_lose_visits() {
+        use std::sync::{Arc, Barrier};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = Arc::new(store(&temp));
+        let origin = temp.path().join("origin");
+        let destination = temp.path().join("destination");
+        std::fs::create_dir(&origin).expect("origin");
+        std::fs::create_dir(&destination).expect("destination");
+        let workers = 8;
+        let iterations = 40;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut threads = Vec::new();
+        for _ in 0..workers {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            let origin = origin.clone();
+            let destination = destination.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                for _ in 0..iterations {
+                    store
+                        .record_navigation(&origin, &destination, None)
+                        .expect("concurrent navigation");
+                }
+            }));
+        }
+        for thread in threads {
+            thread.join().expect("navigation worker");
+        }
+
+        assert_eq!(
+            store
+                .history(&destination)
+                .expect("history")
+                .expect("row")
+                .visit_count,
+            (workers * iterations) as u64
+        );
+    }
+
+    #[test]
+    fn concurrent_renames_cannot_overwrite_the_same_bookmark() {
+        use std::sync::{Arc, Barrier};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = Arc::new(store(&temp));
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        std::fs::create_dir(&first).expect("first");
+        std::fs::create_dir(&second).expect("second");
+        store.add_bookmark("first", &first).expect("first bookmark");
+        store
+            .add_bookmark("second", &second)
+            .expect("second bookmark");
+        let barrier = Arc::new(Barrier::new(2));
+        let mut threads = Vec::new();
+        for name in ["first", "second"] {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                store.rename_bookmark(name, "shared")
+            }));
+        }
+        let succeeded = threads
+            .into_iter()
+            .map(|thread| thread.join().expect("rename worker").is_ok())
+            .filter(|succeeded| *succeeded)
+            .count();
+
+        assert_eq!(succeeded, 1);
+        let bookmarks = store.bookmarks().expect("bookmarks");
+        assert_eq!(bookmarks.len(), 2);
+        assert!(bookmarks.iter().any(|bookmark| bookmark.name == "shared"));
+    }
+
+    #[test]
+    fn navigation_sessions_keep_only_the_latest_entries() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = store(&temp);
+        for index in 0..300 {
+            store
+                .push_transition(
+                    "bounded",
+                    &PathBuf::from(format!("entry-{index:03}")),
+                    &PathBuf::from(format!("entry-{:03}", index + 1)),
+                )
+                .expect("transition");
+        }
+
+        let session = store.session("bounded").expect("session");
+        assert_eq!(session.entries.len(), MAX_SESSION_ENTRIES);
+        assert_eq!(session.cursor, MAX_SESSION_ENTRIES - 1);
+        assert_eq!(session.entries.last(), Some(&PathBuf::from("entry-300")));
+    }
+
+    #[test]
+    fn history_pruning_retains_the_strongest_recent_rows() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = store(&temp);
+        let write = store.db.begin_write().expect("write");
+        {
+            let mut table = write.open_table(HISTORY).expect("history table");
+            for index in 0..6_u64 {
+                let path = PathBuf::from(format!("history-{index}"));
+                let row = PathHistory {
+                    path,
+                    visit_count: index + 1,
+                    first_visit: index,
+                    last_visit: index,
+                };
+                let value = serde_json::to_vec(&row).expect("history row");
+                table
+                    .insert(format!("history-{index}").as_str(), value.as_slice())
+                    .expect("insert history");
+            }
+        }
+        write.commit().expect("commit");
+
+        store.prune_history(5, 3).expect("prune history");
+        let rows = store.histories().expect("histories");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows.iter().map(|row| row.last_visit).collect::<Vec<_>>(),
+            vec![5, 4, 3]
+        );
+    }
+
+    #[test]
+    fn session_pruning_bounds_abandoned_shell_sessions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = store(&temp);
+        for index in 0..300_u64 {
+            store
+                .save_session(
+                    &format!("session-{index:03}"),
+                    &NavigationSession {
+                        entries: vec![PathBuf::from(format!("path-{index}"))],
+                        cursor: 0,
+                        updated_at: index,
+                    },
+                )
+                .expect("save session");
+        }
+
+        let read = store.db.begin_read().expect("read");
+        let table = read.open_table(SESSIONS).expect("sessions");
+        assert!(table.len().expect("session count") <= MAX_SESSIONS as u64);
+        assert!(table.get("session-000").expect("old session").is_none());
+        assert!(table.get("session-299").expect("new session").is_some());
+    }
+
+    #[test]
+    fn existing_sessions_without_timestamps_remain_readable() {
+        let session: NavigationSession =
+            serde_json::from_str(r#"{"entries":["one"],"cursor":0}"#).expect("legacy session");
+        assert_eq!(session.entries, vec![PathBuf::from("one")]);
+        assert_eq!(session.updated_at, 0);
     }
 
     #[test]

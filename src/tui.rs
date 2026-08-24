@@ -873,13 +873,13 @@ fn render_query(frame: &mut Frame<'_>, area: Rect, state: &PickerState, compact:
     let (before, after) = state.query.split_at(state.cursor);
     let mut spans = vec![
         Span::styled(if state.unicode { "› " } else { "> " }, accent(state.color)),
-        Span::raw(before),
+        Span::raw(crate::terminal::safe_text(before).into_owned()),
         Span::styled(if state.unicode { "▏" } else { "|" }, accent(state.color)),
     ];
     if after.is_empty() && state.query.is_empty() {
         spans.push(Span::styled("Type to search", muted()));
     } else {
-        spans.push(Span::raw(after));
+        spans.push(Span::raw(crate::terminal::safe_text(after).into_owned()));
     }
     let block = if compact || !state.unicode {
         Block::default().padding(Padding::horizontal(1))
@@ -930,7 +930,7 @@ fn render_results(
                     ),
                     Span::styled(marker, muted()),
                     Span::styled(
-                        &candidate.basename,
+                        crate::terminal::safe_text(&candidate.basename).into_owned(),
                         if index == selected {
                             Style::default().add_modifier(Modifier::BOLD)
                         } else {
@@ -940,7 +940,10 @@ fn render_results(
                 ]),
                 Line::from(vec![
                     Span::raw("    "),
-                    Span::styled(&candidate.display_path, muted()),
+                    Span::styled(
+                        crate::terminal::safe_text(&candidate.display_path).into_owned(),
+                        muted(),
+                    ),
                 ]),
             ])
         });
@@ -959,11 +962,11 @@ fn render_preview(
     let mut lines = vec![
         Line::from(Span::styled("Destination", muted())),
         Line::from(Span::styled(
-            &candidate.basename,
+            crate::terminal::safe_text(&candidate.basename).into_owned(),
             Style::default().add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(candidate.path.display().to_string()),
+        Line::from(crate::terminal::safe_path(&candidate.path)),
     ];
     if candidate.is_project_root {
         lines.push(Line::from(""));
@@ -995,7 +998,7 @@ fn render_preview(
                     preview
                         .entries
                         .iter()
-                        .map(|entry| Line::from(entry.as_str())),
+                        .map(|entry| Line::from(crate::terminal::safe_text(entry).into_owned())),
                 );
             }
         }
@@ -1160,6 +1163,18 @@ mod tests {
         assert!(!output.contains("Destination"));
         assert!(output.contains("Enter"));
         assert!(output.contains("Punk"));
+    }
+
+    #[test]
+    fn rendered_paths_cannot_inject_terminal_controls() {
+        let output = rendered(
+            72,
+            12,
+            &[candidate("/work/red\u{1b}[31m\u{202e}txt", false)],
+        );
+        assert!(output.contains("red\\x1b[31m\\u{202e}txt"));
+        assert!(!output.contains('\u{1b}'));
+        assert!(!output.contains('\u{202e}'));
     }
 
     #[test]

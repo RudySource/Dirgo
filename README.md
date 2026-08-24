@@ -6,6 +6,12 @@
 
 A fast, fuzzy directory navigator for your terminal.
 
+<p>
+  <a href="https://github.com/RudySource/Dirgo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/RudySource/Dirgo/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/RudySource/Dirgo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/RudySource/Dirgo?display_name=tag"></a>
+  <a href="LICENSE-MIT"><img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a>
+</p>
+
 </div>
 
 ![Dirgo terminal demo](docs/assets/dirgo-demo.gif)
@@ -18,7 +24,7 @@ $ dgo punk
 Unlike history-only jumpers, Dirgo indexes the filesystem and can find directories you have never visited. History then improves ranking without becoming a discovery requirement.
 
 > [!IMPORTANT]
-> Dirgo `0.1.2` supersedes `0.1.1`. The earlier Linux archive accidentally required glibc 2.39; `0.1.2` is built and gated against glibc 2.35 for compatibility with current mainstream distributions.
+> Dirgo `0.1.3` hardens terminal rendering, bounds persistent navigation state, and keeps diagnostics available when configuration is broken. Linux releases continue to be built and gated against glibc 2.35; the incompatible `0.1.1` archive remains superseded.
 
 ## What works now
 
@@ -78,6 +84,8 @@ eval "$(dgo init bash)"
 dgo init fish | source
 ```
 
+These commands enable Dirgo in the current shell. Once verified, add the matching `init` line to `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`. Add it only once; duplicate initialization needlessly slows every new terminal.
+
 Install matching command completion after the wrapper. Generating completion text never opens or writes Dirgo state; bookmark-name suggestions are read lazily only while completing bookmark arguments.
 
 ```zsh
@@ -118,6 +126,23 @@ dgo --no-unicode         # use ASCII-only picker symbols
 
 On the first search, a missing index is built automatically. `dgo refresh` remains useful after filesystem changes.
 
+## Interactive picker
+
+Dirgo opens the picker when a query is ambiguous or when `dgo` is invoked without a destination. Typing filters immediately; paths and ranking metadata stay subordinate to the selected destination.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓`, `Ctrl-K` / `Ctrl-J` | Move the selection |
+| `Home` / `End`, `PageUp` / `PageDown` | Move through long result sets |
+| `Enter` | Go to the selected directory |
+| `Tab` | Toggle the directory preview |
+| `Ctrl-R` | Rebuild the index atomically |
+| `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or open in the configured editor when available |
+| `Ctrl-U` | Clear the query |
+| `Esc` / `Ctrl-C` | Close without changing directory |
+
+`NO_COLOR` or `--no-color` removes ANSI color while preserving hierarchy. `--no-unicode` uses ASCII symbols. `TERM=dumb` uses a plain numbered selector; redirected input cannot choose interactively and returns exit code `4` after listing safe, escaped candidates on stderr.
+
 ## Resolution safety
 
 Dirgo automatically resolves only:
@@ -150,6 +175,7 @@ dgo import zoxide              explicitly import local zoxide scores
 dgo config path | show         inspect configuration
 dgo doctor                     check local health
 dgo stats                      show local-only statistics
+dgo support                    show support and security-reporting guidance
 ```
 
 If a bookmark target was deleted or moved, Dirgo reports both repair commands. Re-running `dgo bookmark add NAME --path NEW_DIRECTORY` updates the bookmark in place; `dgo bookmark remove NAME` removes it. Back/forward navigation automatically skips deleted session entries.
@@ -201,6 +227,19 @@ The disposable index is stored below `XDG_CACHE_HOME`; bookmarks, visits, and se
 
 When a Dirgo upgrade changes the disposable index format, the next use rebuilds that index atomically. Persistent bookmarks, visit history, and sessions are not discarded.
 
+Navigation history is bounded to 50,000 rows and pruned in batches by recency and visit strength. Each shell session keeps its latest 256 navigation entries, and abandoned session records are bounded as well. Visit increments and bookmark collision checks use single write transactions, so concurrent invocations cannot silently lose updates. This prevents normal daily use from growing state indefinitely.
+
+## Platform support
+
+| Platform | Distribution | Shell navigation |
+| --- | --- | --- |
+| macOS Apple Silicon | GitHub archive, Homebrew | Zsh, Bash, Fish |
+| macOS Intel | GitHub archive | Zsh, Bash, Fish |
+| Linux x86_64 GNU | GitHub archive, glibc ≤ 2.35 gate | Zsh, Bash, Fish |
+| Windows x86_64 MSVC | GitHub archive | CLI, TUI, query and actions; no PowerShell/cmd parent-shell wrapper yet |
+
+Windows users can run `dgo query <name>`, the picker, bookmarks, indexing, diagnostics, and actions directly. Changing a parent PowerShell or cmd directory requires a dedicated wrapper, so Dirgo does not claim that integration in `0.1.x`.
+
 ## Machine-readable contract
 
 ```bash
@@ -218,6 +257,8 @@ UTF-8 paths with spaces, quotes, Unicode, brackets, emoji, and leading dashes ar
 Dirgo works entirely locally. It contains no telemetry or analytics and makes no network request during normal use. The index contains local filesystem paths, so protect the XDG cache/state directories as you would other local application data.
 
 Filesystem paths are never interpolated into shell commands or passed through `eval`. See [SECURITY.md](SECURITY.md) for reporting guidance.
+
+Human-facing terminal output escapes control characters and bidirectional overrides from untrusted filenames. The original path remains unchanged for selection and machine-readable JSON/stdout contracts.
 
 ## Performance
 
@@ -289,6 +330,34 @@ Before creating a release candidate, run the non-publishing local preflight. It 
 scripts/release-preflight.sh
 ```
 
+## Troubleshooting
+
+| Symptom | Resolution |
+| --- | --- |
+| `dgo` prints a path but does not change directory | The parent-shell wrapper is not active. Run the matching `dgo init <shell>` command above, then confirm `type dgo` reports a function. |
+| A terminal starts slowly or closes shortly after launch | Run `command dgo doctor`. Remove duplicate Dirgo initialization and inspect any oversized startup file reported by Doctor. |
+| A moved or newly created directory is missing | Run `dgo refresh`. Stale bookmarks include exact repair and removal commands in the error. |
+| Configuration is invalid | `dgo config path` still prints the file location, and `dgo doctor` explains the parse failure without requiring a valid config. Repair or move the file and rerun Doctor. |
+| An ambiguous query is used in a pipe or CI | Use `dgo query <query> --json` and handle exit codes `3`/`4`, or make the query exact. Interactive selection requires a terminal. |
+| The picker is unreadable in a limited terminal | Set `NO_COLOR=1`, pass `--no-unicode`, or use `TERM=dumb` for the numbered fallback. |
+
+For support output that remains available even when configuration or storage is broken, run `dgo support`.
+
+## Uninstall
+
+Remove the shell initialization and completion lines you added, then uninstall the binary:
+
+```bash
+brew uninstall dirgo          # Homebrew installation
+# or remove the manually installed dgo / dgo.exe from PATH
+```
+
+Dirgo leaves user data intact. If you also want to erase it, review and remove the `dirgo` directories below `${XDG_CONFIG_HOME:-~/.config}`, `${XDG_CACHE_HOME:-~/.cache}`, and `${XDG_STATE_HOME:-~/.local/state}`. The index is disposable; state contains bookmarks and navigation history, so back it up if needed.
+
+## Development and contributing
+
+Rust 1.89 is the supported toolchain. A new contributor can run `cargo build`, `cargo test --all-features`, and the commands in [CONTRIBUTING.md](CONTRIBUTING.md) without modifying personal shell startup files. The full non-publishing release gate is `scripts/release-preflight.sh --require-fish`.
+
 ## Project documents
 
 - [Baseline audit](docs/BASELINE_AUDIT.md)
@@ -302,3 +371,5 @@ scripts/release-preflight.sh
 ## License
 
 Dirgo is licensed under either Apache License 2.0 or MIT, at your option.
+
+Security reports follow [SECURITY.md](SECURITY.md). General help is covered by [SUPPORT.md](SUPPORT.md) and `dgo support`. No donation address is published because the project has no verified maintainer-owned donation destination.

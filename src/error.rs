@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirgoError {
-    #[error("Dirgo could not read {path}: {source}")]
+    #[error("Dirgo could not read {path:?}: {source}")]
     Io {
         path: PathBuf,
         #[source]

@@ -11,6 +11,7 @@ pub mod paths;
 pub mod search;
 pub mod shell;
 pub mod state;
+pub mod terminal;
 pub mod tui;
 
 pub use error::{DirgoError, Result};
