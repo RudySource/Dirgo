@@ -266,6 +266,12 @@ pub enum Command {
     SuggestEnabled,
     #[command(name = "__suggest-live-enabled", hide = true)]
     SuggestLiveEnabled,
+    #[command(name = "__suggest-native-enabled", hide = true)]
+    SuggestNativeEnabled,
+    #[command(name = "__suggest-debounce", hide = true)]
+    SuggestDebounce,
+    #[command(name = "__suggest-native-timeout", hide = true)]
+    SuggestNativeTimeout,
     #[command(name = "__suggest-history-enabled", hide = true)]
     SuggestHistoryEnabled,
     #[command(name = "__suggest-shell", hide = true)]

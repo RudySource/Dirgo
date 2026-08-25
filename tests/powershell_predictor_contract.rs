@@ -7,6 +7,8 @@ fn predictor_sends_adaptive_protocol_v2_list_requests() {
     assert!(PREDICTOR.contains("TerminalRows = GetTerminalRows()"));
     assert!(PREDICTOR.contains("TerminalColumns = GetTerminalColumns()"));
     assert!(PREDICTOR.contains("Presentation { get; init; } = \"list\""));
+    assert!(PREDICTOR.contains("DGO_PREDICTOR_TIMEOUT_MS"));
+    assert!(PREDICTOR.contains("Math.Clamp(value, 10, 500)"));
 }
 
 #[test]

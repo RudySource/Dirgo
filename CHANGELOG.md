@@ -9,8 +9,10 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 ### Added
 
 - Add opt-in, local shell-native suggestions for indexed directories, navigation history, executables, filesystem entries, and separately opt-in command history.
-- Add safe `Ctrl+F` insertion and a textual `Shift+Tab` suggestion picker for Zsh, Bash 4+, and Fish; accepting a suggestion never submits the command line.
-- Add a compiled PowerShell 7.4.x PSReadLine predictor with inline and list views, a bounded per-session worker, command-history feedback, and a safe `Ctrl+F` fallback on other PowerShell 7 versions.
+- Add a debounced, selectable 5–12 row live panel for Zsh, safe `Ctrl+F` insertion, and a textual `Shift+Tab` picker; accepting a suggestion never submits the command line.
+- Enrich the native Fish and Bash 4+ completion menus while preserving their line editors and existing completion ownership.
+- Add a compiled PowerShell 7.4.x PSReadLine predictor with inline and ListView modes, a bounded per-session worker, command-history feedback, and a safe `Ctrl+F` fallback on other PowerShell 7 versions.
+- Complete `dgo sug` to `dgo suggestions`, `dgo --upd` to `dgo --update`, and discover bounded executable names from `PATH` without invoking them.
 - Add a versioned, bounded NDJSON suggestion protocol, local privacy filters, retention controls, diagnostics, and independent history clearing.
 - Add real-shell PTY coverage for Zsh, Bash, and Fish plus native Windows integration, predictor packaging, and installer smoke coverage.
 

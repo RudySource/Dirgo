@@ -52,6 +52,27 @@ fn suggestions(c: &mut Criterion) {
         &request,
         |bencher, request| bencher.iter(|| engine.suggest(request)),
     );
+
+    let executables = (0..8_192).map(|index| {
+        if index == 8_191 {
+            "slash-tool".to_owned()
+        } else {
+            format!("command-{index:04}")
+        }
+    });
+    let command_engine = SuggestionEngine::new_indexed(SuggestionData {
+        catalog: CommandCatalog::from_executable_names(executables),
+        ..SuggestionData::default()
+    });
+    let command_request = SuggestionRequest {
+        before_cursor: "slas".into(),
+        ..request
+    };
+    c.bench_with_input(
+        BenchmarkId::new("warm_prefix", "8192_path_commands"),
+        &command_request,
+        |bencher, request| bencher.iter(|| command_engine.suggest(request)),
+    );
 }
 
 criterion_group!(benches, suggestions);

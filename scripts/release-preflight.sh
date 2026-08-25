@@ -22,6 +22,10 @@ done
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
+build_root="${CARGO_TARGET_DIR:-$repo_root/target}"
+if [[ "$build_root" != /* ]]; then
+  build_root="$repo_root/$build_root"
+fi
 scratch_dir=$(mktemp -d "${TMPDIR:-/tmp}/dirgo-release-preflight.XXXXXX")
 cleanup() { rm -rf "$scratch_dir"; }
 trap cleanup EXIT
@@ -44,7 +48,7 @@ dotnet list powershell/DirgoPredictor/DirgoPredictor.csproj package --vulnerable
 sh -n install/dirgo-installer.sh
 sh -n scripts/render-homebrew-formula.sh
 sh -n scripts/render-scoop-manifest.sh
-DGO_BIN="$repo_root/target/release/dgo" scripts/installer-smoke.sh
+DGO_BIN="$build_root/release/dgo" scripts/installer-smoke.sh
 cargo build --release --bin dgo-fixture --features benchmark-tools
 cargo bench --bench index_pipeline --no-run
 cargo bench --bench suggestions --no-run
@@ -118,13 +122,13 @@ if ! command -v expect >/dev/null 2>&1; then
   printf '%s\n' 'PTY-GATES:expect is required for release preflight' >&2
   exit 1
 fi
-export DGO_BIN="$repo_root/target/release/dgo"
+export DGO_BIN="$build_root/release/dgo"
 expect scripts/pty-picker-smoke.exp
 expect scripts/pty-terminal-gates.exp
 expect scripts/pty-shell-matrix.exp
 DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
 expect scripts/pty-zsh-live-completion.exp
-DGO_FIXTURE_BIN="$repo_root/target/release/dgo-fixture" \
+DGO_FIXTURE_BIN="$build_root/release/dgo-fixture" \
   scripts/benchmark-cli.sh --directories 100 --samples 1
 
 blocked_path="$scratch_dir/blocked"
@@ -132,18 +136,18 @@ printf blocked > "$blocked_path"
 
 for shell in zsh bash; do
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo completions "$shell" > "$scratch_dir/dgo.$shell"
+    "$build_root/release/dgo" completions "$shell" > "$scratch_dir/dgo.$shell"
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo init "$shell" > "$scratch_dir/init.$shell"
+    "$build_root/release/dgo" init "$shell" > "$scratch_dir/init.$shell"
   "$shell" -n "$scratch_dir/dgo.$shell"
   "$shell" -n "$scratch_dir/init.$shell"
 done
 
 if command -v fish >/dev/null 2>&1; then
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo completions fish > "$scratch_dir/dgo.fish"
+    "$build_root/release/dgo" completions fish > "$scratch_dir/dgo.fish"
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo init fish > "$scratch_dir/init.fish"
+    "$build_root/release/dgo" init fish > "$scratch_dir/init.fish"
   fish -n "$scratch_dir/dgo.fish"
   fish -n "$scratch_dir/init.fish"
   printf '%s\n' 'SHELL-SYNTAX:fish:ok'
@@ -156,9 +160,9 @@ fi
 
 if command -v pwsh >/dev/null 2>&1; then
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo completions powershell > "$scratch_dir/dgo-completions.ps1"
+    "$build_root/release/dgo" completions powershell > "$scratch_dir/dgo-completions.ps1"
   XDG_CONFIG_HOME="$blocked_path" XDG_CACHE_HOME="$blocked_path" XDG_STATE_HOME="$blocked_path" \
-    target/release/dgo init powershell > "$scratch_dir/init.ps1"
+    "$build_root/release/dgo" init powershell > "$scratch_dir/init.ps1"
   pwsh -NoLogo -NoProfile -Command \
     "[void][scriptblock]::Create((Get-Content -Raw -LiteralPath '$scratch_dir/dgo-completions.ps1')); [void][scriptblock]::Create((Get-Content -Raw -LiteralPath '$scratch_dir/init.ps1'))"
   printf '%s\n' 'SHELL-SYNTAX:powershell:ok'

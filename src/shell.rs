@@ -108,9 +108,11 @@ function dgo() {
 if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   autoload -Uz add-zle-hook-widget compinit 2>/dev/null
   (( $+functions[compdef] )) || compinit -C
-  if (( ! $+functions[_dgo] )); then
+  if command dgo __suggest-native-enabled >/dev/null 2>&1 && (( ! $+functions[_dgo] )); then
     source <(command dgo completions zsh)
   fi
+
+  typeset -g _DGO_LIVE_DEBOUNCE_SECONDS="$(command dgo __suggest-debounce 2>/dev/null)"
 
   typeset -g _DGO_LIVE_GENERATION=0
   typeset -g _DGO_LIVE_FD=-1
@@ -178,13 +180,35 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   }
 
   function _dgo_live_render() {
-    local panel='Dirgo suggestions' index marker
+    local panel='Dirgo · suggestions' index marker display ellipsis='…' footer available
+    if [[ -n ${DGO_NO_UNICODE:-} ]]; then
+      panel='Dirgo suggestions'
+      ellipsis='...'
+    fi
+    available=$(( COLUMNS > 18 ? COLUMNS - 10 : 8 ))
     for (( index = 1; index <= ${#_DGO_LIVE_VALUES}; index++ )); do
       marker=' '
       (( index == _DGO_LIVE_SELECTED )) && marker='›'
-      panel+=$'\n'"$marker  ${_DGO_LIVE_LABELS[index]}  ${_DGO_LIVE_DISPLAYS[index]}"
+      [[ -n ${DGO_NO_UNICODE:-} && index == _DGO_LIVE_SELECTED ]] && marker='>'
+      display="${_DGO_LIVE_DISPLAYS[index]}"
+      if (( ${#display} > available )); then
+        if [[ "$ellipsis" == '...' ]]; then
+          display="${display[1,$(( available - 3 ))]}${ellipsis}"
+        else
+          display="${display[1,$(( available - 1 ))]}${ellipsis}"
+        fi
+      fi
+      panel+=$'\n'"$marker  ${_DGO_LIVE_LABELS[index]}  ${display}"
     done
-    panel+=$'\n'"↑↓ select   Tab insert   Esc dismiss"
+    if (( COLUMNS >= 54 )); then
+      footer='↑↓ select   Tab insert   Esc dismiss'
+    elif (( COLUMNS >= 34 )); then
+      footer='↑↓ choose · Tab insert · Esc close'
+    else
+      footer='Tab insert · Esc close'
+    fi
+    [[ -n ${DGO_NO_UNICODE:-} ]] && footer='Tab insert | Esc close'
+    panel+=$'\n'"$footer"
     zle -M "$panel"
   }
 
@@ -242,7 +266,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     local generation=$_DGO_LIVE_GENERATION
     local snapshot="$_DGO_LIVE_SNAPSHOT" after="$RBUFFER" cwd="$PWD" rows=$LINES columns=$COLUMNS
     exec {_DGO_LIVE_FD}< <(
-      sleep 0.03
+      sleep "${_DGO_LIVE_DEBOUNCE_SECONDS:-0.030}"
       print -rn -- "$generation"$'\0'
       printf '%s\0%s\0' "$snapshot" "$after" |
         command dgo __suggest-complete --shell zsh --cwd "$cwd" \
@@ -387,7 +411,9 @@ dgo() {
 }
 
 if command dgo __suggest-enabled >/dev/null 2>&1 && (( BASH_VERSINFO[0] >= 4 )); then
-  source <(command dgo completions bash)
+  if command dgo __suggest-native-enabled >/dev/null 2>&1; then
+    source <(command dgo completions bash)
+  fi
   _dgo_accept_suggestion() {
     local before after suggestion
     before="${READLINE_LINE:0:READLINE_POINT}"
@@ -484,7 +510,9 @@ function dgo --description 'Go anywhere. Instantly.'
 end
 
 if command dgo __suggest-enabled >/dev/null 2>&1
-    command dgo completions fish | source
+    if command dgo __suggest-native-enabled >/dev/null 2>&1
+        command dgo completions fish | source
+    end
     function __dgo_accept_suggestion --description 'Insert a Dirgo suggestion'
         set -l buffer (commandline -b)
         set -l cursor (commandline -C)
@@ -630,6 +658,7 @@ $suggestionsEnabled = $LASTEXITCODE -eq 0
 if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
     $dirgoPredictorRegistered = $false
     $env:DGO_PREDICTOR_EXECUTABLE = $global:DirgoExecutablePath
+    $env:DGO_PREDICTOR_TIMEOUT_MS = (& $global:DirgoExecutablePath __suggest-native-timeout 2>$null)
     $env:DGO_PREDICTOR_CWD = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath
     if (-not (Get-Variable -Name DirgoPredictorCwdSubscription -Scope Global -ErrorAction SilentlyContinue)) {
         $global:DirgoPredictorCwdSubscription = Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -SupportEvent -Action {
@@ -643,7 +672,10 @@ if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
         $predictorManifest = Join-Path (Split-Path -Parent $global:DirgoExecutablePath) 'DirgoPredictor/DirgoPredictor.psd1'
     }
     $psReadLineVersion = (Get-Module -ListAvailable PSReadLine | Sort-Object Version -Descending | Select-Object -First 1).Version
-    if ($PSVersionTable.PSVersion.Major -eq 7 -and
+    $null = & $global:DirgoExecutablePath __suggest-native-enabled 2>$null
+    $nativeCompletionsEnabled = $LASTEXITCODE -eq 0
+    if ($nativeCompletionsEnabled -and
+        $PSVersionTable.PSVersion.Major -eq 7 -and
         $PSVersionTable.PSVersion.Minor -eq 4 -and
         $psReadLineVersion -ge [version]'2.2.2' -and
         (Test-Path -LiteralPath $predictorManifest)) {
@@ -894,10 +926,14 @@ mod tests {
         assert!(script.contains("add-zle-hook-widget line-pre-redraw _dgo_live_pre_redraw"));
         assert!(script.contains("add-zle-hook-widget line-finish _dgo_live_line_finish"));
         assert!(script.contains("zle -F"));
-        assert!(script.contains("sleep 0.03"));
+        assert!(script.contains("__suggest-debounce"));
+        assert!(script.contains("${_DGO_LIVE_DEBOUNCE_SECONDS:-0.030}"));
         assert!(script.contains("_DGO_LIVE_GENERATION"));
         assert!(script.contains("_DGO_LIVE_SNAPSHOT"));
         assert!(script.contains("zle -M \"$panel\""));
+        assert!(script.contains("available=$(( COLUMNS > 18 ? COLUMNS - 10 : 8 ))"));
+        assert!(script.contains("DGO_NO_UNICODE"));
+        assert!(script.contains("COLUMNS >= 54"));
         assert!(script.contains("function _dgo_live_accept()"));
         assert!(script.contains("function _dgo_live_dismiss()"));
         assert!(!script.contains("bindkey 'a'"));
@@ -919,7 +955,9 @@ mod tests {
         assert!(!bash.contains("bind -x 'a"));
         assert!(!bash.contains("bind -x ' "));
 
+        assert!(integration(Shell::Fish).contains("__suggest-native-enabled"));
         assert!(integration(Shell::Fish).contains("command dgo completions fish | source"));
+        assert!(integration(Shell::Bash).contains("__suggest-native-enabled"));
         assert!(integration(Shell::Bash).contains("source <(command dgo completions bash)"));
     }
 }

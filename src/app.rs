@@ -242,6 +242,23 @@ pub fn run() -> Result<i32> {
             },
         );
     }
+    if matches!(cli.command, Some(Command::SuggestNativeEnabled)) {
+        return Ok(
+            if config.suggestions.enabled && config.suggestions.native_completions {
+                0
+            } else {
+                1
+            },
+        );
+    }
+    if matches!(cli.command, Some(Command::SuggestDebounce)) {
+        println!("{:.3}", config.suggestions.debounce_ms as f64 / 1_000.0);
+        return Ok(0);
+    }
+    if matches!(cli.command, Some(Command::SuggestNativeTimeout)) {
+        println!("{}", config.suggestions.native_timeout_ms);
+        return Ok(0);
+    }
     if matches!(cli.command, Some(Command::SuggestHistoryEnabled)) {
         return Ok(
             if config.suggestions.enabled && config.suggestions.command_history {
@@ -335,6 +352,9 @@ pub fn run() -> Result<i32> {
             | Command::SuggestRecord
             | Command::SuggestEnabled
             | Command::SuggestLiveEnabled
+            | Command::SuggestNativeEnabled
+            | Command::SuggestDebounce
+            | Command::SuggestNativeTimeout
             | Command::SuggestHistoryEnabled
             | Command::SuggestShell { .. }
             | Command::SuggestComplete { .. }

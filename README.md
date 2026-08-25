@@ -256,11 +256,21 @@ the managed Dirgo integration:
 dgo suggestions enable
 ```
 
-Press `Ctrl+F` to insert the best suggestion without executing it. In Zsh,
-Bash 4+, and Fish, `Shift+Tab` opens the explicit source-labelled list. On
-PowerShell 7.4.x with PSReadLine 2.2.2+, Dirgo also participates in native
-inline and list prediction; `F2` switches PSReadLine's view. Other PowerShell 7
-minor versions retain parent-shell navigation and safe `Ctrl+F` insertion.
+Dirgo merges indexed directories, filesystem entries, commands found on
+`PATH`, its own subcommands/options, navigation history, and (when enabled)
+filtered command history. Source labels such as `DIR`, `PATH`, `SUB`, and `OPT`
+make a larger list easy to scan.
+
+- **Zsh:** after a 30 ms debounce, a 5–12 row list appears below the command
+  line. Use `Up`/`Down`, `Tab` to insert, or `Esc` to dismiss.
+- **PowerShell 7.4.x + PSReadLine 2.2.2+:** suggestions use native ListView;
+  `F2` switches PSReadLine's prediction view.
+- **Fish and Bash 4+:** Dirgo enriches each shell's native `Tab` completion
+  menu without replacing the line editor or other commands' completions.
+
+On every supported shell, `Ctrl+F` inserts the best result and `Shift+Tab`
+opens the explicit source-labelled picker. Insertion never submits or executes
+the command. Other PowerShell 7 versions retain navigation and `Ctrl+F`.
 
 Command-history suggestions remain off until separately enabled with
 `dgo suggestions history enable`. Likely credentials and unsafe terminal text
@@ -327,6 +337,10 @@ editor = "auto"
 [suggestions]
 enabled = false
 command_history = false
+live_panel = true
+native_completions = true
+debounce_ms = 30
+native_timeout_ms = 80
 max_results = 8
 retention_entries = 10000
 retention_days = 180
@@ -335,6 +349,9 @@ deny_patterns = []
 
 `actions.editor` accepts one executable name or path, never a shell command line.
 Suggestion and command-history enablement are separate privacy choices.
+`max_results` is additionally constrained to 5–12 visible rows according to
+terminal height. `debounce_ms` controls the Zsh live panel delay;
+`native_timeout_ms` bounds the native predictor response budget.
 `ui.height_percent` is capped to the useful picker content height, so closing the picker does not leave a large empty terminal block.
 
 </details>

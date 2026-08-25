@@ -9,7 +9,7 @@ namespace Dirgo.Predictor;
 
 public sealed class DirgoPredictor : ICommandPredictor, IDisposable
 {
-    private const int ResponseBudgetMilliseconds = 18;
+    private readonly int _responseBudgetMilliseconds;
     private readonly object _gate = new();
     private readonly string _executable;
     private Process? _worker;
@@ -20,6 +20,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
     public DirgoPredictor(string executable)
     {
         _executable = executable;
+        _responseBudgetMilliseconds = ReadResponseBudget();
         StartWorker();
     }
 
@@ -60,7 +61,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
             worker.StandardInput.Flush();
 
             var responseTask = worker.StandardOutput.ReadLineAsync();
-            if (!responseTask.Wait(ResponseBudgetMilliseconds, cancellationToken))
+            if (!responseTask.Wait(_responseBudgetMilliseconds, cancellationToken))
             {
                 StopWorker();
                 return default;
@@ -145,6 +146,11 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
 
     private static ushort? GetTerminalColumns() =>
         GetTerminalDimension(() => Console.WindowWidth, 20);
+
+    private static int ReadResponseBudget() =>
+        int.TryParse(Environment.GetEnvironmentVariable("DGO_PREDICTOR_TIMEOUT_MS"), out var value)
+            ? Math.Clamp(value, 10, 500)
+            : 80;
 
     private static ushort? GetTerminalDimension(Func<int> read, int minimum)
     {

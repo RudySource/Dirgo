@@ -214,6 +214,35 @@ fn fish_completion_stream_is_line_delimited_and_labeled_for_native_pager() {
 }
 
 #[test]
+fn hidden_shell_settings_reflect_the_validated_suggestion_config() {
+    let fixture = Fixture::new();
+    let config_path = fixture.temp.path().join("config/dirgo/config.toml");
+    let mut config = fs::read_to_string(&config_path).expect("config");
+    config.push_str(
+        "[suggestions]\nenabled = true\nnative_completions = false\ndebounce_ms = 47\nnative_timeout_ms = 91\n",
+    );
+    fs::write(config_path, config).expect("custom suggestion config");
+
+    fixture
+        .command()
+        .arg("__suggest-native-enabled")
+        .assert()
+        .code(1);
+    fixture
+        .command()
+        .arg("__suggest-debounce")
+        .assert()
+        .success()
+        .stdout("0.047\n");
+    fixture
+        .command()
+        .arg("__suggest-native-timeout")
+        .assert()
+        .success()
+        .stdout("91\n");
+}
+
+#[test]
 fn worker_serves_multiple_frames_and_recording_requires_history_opt_in() {
     let fixture = Fixture::new();
     fixture
