@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     env,
-    io::{self, IsTerminal, Write},
+    io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -13,7 +13,7 @@ use crate::{
     actions::Action,
     cli::{
         BookmarkCommand, Cli, Command, ConfigCommand, ImportSource, QueryArgs, ResolveArgs,
-        UpdateNotificationMode,
+        SuggestionsCommand, SuggestionsHistoryCommand, UpdateNotificationMode,
     },
     config::Config,
     history_import,
@@ -22,7 +22,12 @@ use crate::{
     paths::{self, AppPaths},
     search::{self, SearchContext},
     shell,
-    state::StateStore,
+    state::{StateStore, read_suggestion_context},
+    suggestions::{
+        CommandHistoryStore, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
+        SuggestionResponse, decode_request_line, discover_executables, encode_response_line,
+        pick_suggestion, read_bounded_frame, read_command_history, write_suggestions_config,
+    },
     terminal,
 };
 
@@ -212,6 +217,43 @@ pub fn run() -> Result<i32> {
         config.ui.icons = "never".into();
     }
 
+    if let Some(Command::Suggestions { command }) = &cli.command {
+        return suggestions_command(&paths, &mut config, command);
+    }
+    if matches!(cli.command, Some(Command::Suggest)) {
+        return hidden_suggest(&paths, &config);
+    }
+    if let Some(Command::SuggestWorker { ready }) = &cli.command {
+        return hidden_suggest_worker(&paths, &config, *ready);
+    }
+    if matches!(cli.command, Some(Command::SuggestRecord)) {
+        return hidden_suggest_record(&paths, &config);
+    }
+    if matches!(cli.command, Some(Command::SuggestEnabled)) {
+        return Ok(if config.suggestions.enabled { 0 } else { 1 });
+    }
+    if matches!(cli.command, Some(Command::SuggestHistoryEnabled)) {
+        return Ok(
+            if config.suggestions.enabled && config.suggestions.command_history {
+                0
+            } else {
+                1
+            },
+        );
+    }
+    if let Some(Command::SuggestShell { shell, cwd }) = &cli.command {
+        return hidden_suggest_shell(&paths, &config, *shell, cwd);
+    }
+    if let Some(Command::SuggestPick {
+        shell,
+        cwd,
+        request_path,
+        output_path,
+    }) = &cli.command
+    {
+        return hidden_suggest_pick(&paths, &config, *shell, cwd, request_path, output_path);
+    }
+
     if cli.refresh || matches!(cli.command, Some(Command::Refresh)) {
         let summary = index::rebuild(&paths, &config)?;
         println!(
@@ -258,6 +300,18 @@ pub fn run() -> Result<i32> {
         Some(Command::Stats) => stats(&paths),
         Some(Command::Config { command }) => config_command(&paths, &config, command),
         Some(Command::Support) => unreachable!("handled before storage access"),
+        Some(
+            Command::Suggestions { .. }
+            | Command::Suggest
+            | Command::SuggestWorker { .. }
+            | Command::SuggestRecord
+            | Command::SuggestEnabled
+            | Command::SuggestHistoryEnabled
+            | Command::SuggestShell { .. }
+            | Command::SuggestPick { .. },
+        ) => {
+            unreachable!("handled before command dispatch")
+        }
         Some(Command::Resolve(args)) => shell_resolve(&paths, &config, args, requested_action),
         Some(
             Command::Refresh
@@ -277,6 +331,395 @@ pub fn run() -> Result<i32> {
             requested_action,
         ),
     }
+}
+
+fn suggestions_command(
+    paths: &AppPaths,
+    config: &mut Config,
+    command: &SuggestionsCommand,
+) -> Result<i32> {
+    match command {
+        SuggestionsCommand::Enable => {
+            config.suggestions.enabled = true;
+            write_suggestions_config(&paths.config_file, config)?;
+            println!(
+                "Shell-native suggestions enabled. Open a new shell or reload Dirgo integration."
+            );
+        }
+        SuggestionsCommand::Disable => {
+            config.suggestions.enabled = false;
+            write_suggestions_config(&paths.config_file, config)?;
+            println!(
+                "Shell-native suggestions disabled immediately. Reload Dirgo integration to remove key bindings. Command history was not deleted."
+            );
+        }
+        SuggestionsCommand::Status => {
+            println!(
+                "Suggestions      {}\nCommand history  {}\nMaximum results  {}",
+                enabled_label(config.suggestions.enabled),
+                enabled_label(config.suggestions.command_history),
+                config.suggestions.max_results,
+            );
+        }
+        SuggestionsCommand::Doctor => {
+            println!(
+                "Dirgo Suggestions Doctor\n\nconfiguration  valid\nsuggestions    {}\ncommand history {}\nprotocol       v{}\nstate          {}",
+                enabled_label(config.suggestions.enabled),
+                enabled_label(config.suggestions.command_history),
+                crate::suggestions::PROTOCOL_VERSION,
+                if paths.suggestions_state_file.exists() {
+                    "present"
+                } else {
+                    "not created"
+                },
+            );
+        }
+        SuggestionsCommand::History { command } => match command {
+            SuggestionsHistoryCommand::Enable => {
+                config.suggestions.command_history = true;
+                write_suggestions_config(&paths.config_file, config)?;
+                println!("Filtered local command history enabled.");
+            }
+            SuggestionsHistoryCommand::Disable => {
+                config.suggestions.command_history = false;
+                write_suggestions_config(&paths.config_file, config)?;
+                println!("Command history disabled. Stored entries were not deleted.");
+            }
+            SuggestionsHistoryCommand::Clear => {
+                if !paths.suggestions_state_file.exists() {
+                    println!("Command history is already empty.");
+                } else {
+                    let removed =
+                        CommandHistoryStore::open(&paths.suggestions_state_file)?.clear()?;
+                    println!("Removed {removed} command-history entries.");
+                }
+            }
+        },
+    }
+    Ok(0)
+}
+
+fn enabled_label(enabled: bool) -> &'static str {
+    if enabled { "enabled" } else { "disabled" }
+}
+
+fn hidden_suggest(paths: &AppPaths, config: &Config) -> Result<i32> {
+    let mut input = Vec::new();
+    io::stdin()
+        .take((MAX_REQUEST_BYTES + 1) as u64)
+        .read_to_end(&mut input)
+        .map_err(|error| DirgoError::io("stdin", error))?;
+    let request = match decode_request_line(&input) {
+        Ok(request) => request,
+        Err(error) => {
+            let response = SuggestionResponse::error(0, terminal::safe_text(&error.to_string()));
+            print!(
+                "{}",
+                encode_response_line(&response)
+                    .map_err(|error| DirgoError::User(error.to_string()))?
+            );
+            return Ok(2);
+        }
+    };
+    let suggestions = if config.suggestions.enabled {
+        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request)
+    } else {
+        Vec::new()
+    };
+    let response = SuggestionResponse::success(request.request_id, suggestions);
+    print!(
+        "{}",
+        encode_response_line(&response).map_err(|error| DirgoError::User(error.to_string()))?
+    );
+    Ok(0)
+}
+
+fn hidden_suggest_worker(paths: &AppPaths, config: &Config, ready: bool) -> Result<i32> {
+    let mut active_config = config.clone();
+    let mut engine = build_indexed_suggestion_engine(paths, &active_config)?;
+    let mut data_stamp = suggestion_data_stamp(paths);
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    if ready {
+        writer
+            .write_all(b"READY 1\n")
+            .and_then(|_| writer.flush())
+            .map_err(|error| DirgoError::io("stdout", error))?;
+    }
+    loop {
+        let frame = match read_bounded_frame(&mut reader) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => break,
+            Err(error) => {
+                let response =
+                    SuggestionResponse::error(0, terminal::safe_text(&error.to_string()));
+                let encoded = encode_response_line(&response)
+                    .map_err(|error| DirgoError::User(error.to_string()))?;
+                writer
+                    .write_all(encoded.as_bytes())
+                    .and_then(|_| writer.flush())
+                    .map_err(|error| DirgoError::io("stdout", error))?;
+                continue;
+            }
+        };
+        let response = match decode_request_line(&frame) {
+            Ok(request) => {
+                let next_stamp = suggestion_data_stamp(paths);
+                if next_stamp != data_stamp
+                    && let Ok(next_config) = Config::load(paths)
+                    && let Ok(next_engine) = build_indexed_suggestion_engine(paths, &next_config)
+                {
+                    active_config = next_config;
+                    engine = next_engine;
+                    data_stamp = next_stamp;
+                }
+                SuggestionResponse::success(
+                    request.request_id,
+                    if active_config.suggestions.enabled {
+                        engine.suggest(&request)
+                    } else {
+                        Vec::new()
+                    },
+                )
+            }
+            Err(error) => SuggestionResponse::error(0, terminal::safe_text(&error.to_string())),
+        };
+        let encoded =
+            encode_response_line(&response).map_err(|error| DirgoError::User(error.to_string()))?;
+        writer
+            .write_all(encoded.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|error| DirgoError::io("stdout", error))?;
+    }
+    Ok(0)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SuggestionDataStamp {
+    config: Option<(std::time::SystemTime, u64)>,
+    index: Option<(std::time::SystemTime, u64)>,
+    history: Option<(std::time::SystemTime, u64)>,
+}
+
+fn suggestion_data_stamp(paths: &AppPaths) -> SuggestionDataStamp {
+    fn stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
+        let metadata = std::fs::metadata(path).ok()?;
+        Some((metadata.modified().ok()?, metadata.len()))
+    }
+    SuggestionDataStamp {
+        config: stamp(&paths.config_file),
+        index: stamp(&paths.index_file),
+        history: stamp(&paths.suggestions_state_file),
+    }
+}
+
+fn hidden_suggest_record(paths: &AppPaths, config: &Config) -> Result<i32> {
+    if !config.suggestions.enabled || !config.suggestions.command_history {
+        return Ok(0);
+    }
+    let mut input = Vec::new();
+    io::stdin()
+        .take((MAX_REQUEST_BYTES + 1) as u64)
+        .read_to_end(&mut input)
+        .map_err(|error| DirgoError::io("stdin", error))?;
+    if input.len() > MAX_REQUEST_BYTES {
+        return Err(DirgoError::User(
+            "command history entry exceeds 65536 bytes".into(),
+        ));
+    }
+    while matches!(input.last(), Some(b'\n' | b'\r')) {
+        input.pop();
+    }
+    let command = std::str::from_utf8(&input)
+        .map_err(|_| DirgoError::User("command history entry is not valid UTF-8".into()))?;
+    CommandHistoryStore::open(&paths.suggestions_state_file)?.record(
+        command,
+        unix_now(),
+        &config.suggestions,
+    )?;
+    Ok(0)
+}
+
+fn hidden_suggest_shell(
+    paths: &AppPaths,
+    config: &Config,
+    shell: crate::shell::Shell,
+    cwd: &Path,
+) -> Result<i32> {
+    if !config.suggestions.enabled {
+        return Ok(0);
+    }
+    let (before_cursor, after_cursor) = read_shell_buffer(None)?;
+    let request = shell_suggestion_request(config, shell, cwd, before_cursor, after_cursor);
+    if let Some(suggestion) = build_suggestion_engine(paths, config, needs_executables(&request))?
+        .suggest(&request)
+        .first()
+    {
+        println!("{}", suggestion.edit.replacement);
+    }
+    Ok(0)
+}
+
+fn hidden_suggest_pick(
+    paths: &AppPaths,
+    config: &Config,
+    shell: crate::shell::Shell,
+    cwd: &Path,
+    request_path: &Path,
+    output_path: &Path,
+) -> Result<i32> {
+    let (before_cursor, after_cursor) = read_shell_buffer(Some(request_path))?;
+    if !config.suggestions.enabled {
+        write_private_picker_result(output_path, b"")?;
+        return Ok(0);
+    }
+    let request = shell_suggestion_request(config, shell, cwd, before_cursor, after_cursor);
+    let suggestions =
+        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request);
+    let replacement = pick_suggestion(
+        &suggestions,
+        crate::suggestions::PickerOptions {
+            color: config.ui.accent != "none" && env::var_os("NO_COLOR").is_none(),
+            unicode: config.ui.icons != "never",
+        },
+    )?
+    .unwrap_or_default();
+    write_private_picker_result(output_path, replacement.as_bytes())?;
+    Ok(0)
+}
+
+fn write_private_picker_result(path: &Path, contents: &[u8]) -> Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| DirgoError::io(path, error))?;
+    file.write_all(contents)
+        .map_err(|error| DirgoError::io(path, error))
+}
+
+fn read_shell_buffer(request_path: Option<&Path>) -> Result<(String, String)> {
+    let mut input = Vec::new();
+    if let Some(path) = request_path {
+        std::fs::File::open(path)
+            .map_err(|error| DirgoError::io(path, error))?
+            .take((MAX_REQUEST_BYTES + 1) as u64)
+            .read_to_end(&mut input)
+            .map_err(|error| DirgoError::io(path, error))?;
+    } else {
+        io::stdin()
+            .take((MAX_REQUEST_BYTES + 1) as u64)
+            .read_to_end(&mut input)
+            .map_err(|error| DirgoError::io("stdin", error))?;
+    }
+    if input.len() > MAX_REQUEST_BYTES {
+        return Err(DirgoError::User(
+            "suggestion input exceeds 65536 bytes".into(),
+        ));
+    }
+    let mut fields = input.splitn(3, |byte| *byte == 0);
+    let before = fields.next().unwrap_or_default();
+    let after = fields.next().unwrap_or_default();
+    if fields.next().is_some_and(|extra| !extra.is_empty()) {
+        return Err(DirgoError::User(
+            "suggestion input has too many fields".into(),
+        ));
+    }
+    let before_cursor = std::str::from_utf8(before)
+        .map_err(|_| DirgoError::User("suggestion buffer is not valid UTF-8".into()))?;
+    let after_cursor = std::str::from_utf8(after)
+        .map_err(|_| DirgoError::User("suggestion buffer is not valid UTF-8".into()))?;
+    Ok((before_cursor.into(), after_cursor.into()))
+}
+
+fn shell_suggestion_request(
+    config: &Config,
+    shell: crate::shell::Shell,
+    cwd: &Path,
+    before_cursor: String,
+    after_cursor: String,
+) -> crate::suggestions::SuggestionRequest {
+    crate::suggestions::SuggestionRequest {
+        protocol_version: crate::suggestions::PROTOCOL_VERSION,
+        request_id: 0,
+        shell: shell.suggestion_kind(),
+        cwd: cwd.to_path_buf(),
+        before_cursor,
+        after_cursor,
+        max_results: config.suggestions.max_results,
+    }
+}
+
+fn needs_executables(request: &crate::suggestions::SuggestionRequest) -> bool {
+    !request
+        .before_cursor
+        .trim_start()
+        .contains(char::is_whitespace)
+}
+
+fn build_suggestion_engine(
+    paths: &AppPaths,
+    config: &Config,
+    include_executables: bool,
+) -> Result<SuggestionEngine> {
+    Ok(SuggestionEngine::new(load_suggestion_data(
+        paths,
+        config,
+        include_executables,
+    )?))
+}
+
+fn build_indexed_suggestion_engine(paths: &AppPaths, config: &Config) -> Result<SuggestionEngine> {
+    Ok(SuggestionEngine::new_indexed(load_suggestion_data(
+        paths, config, true,
+    )?))
+}
+
+fn load_suggestion_data(
+    paths: &AppPaths,
+    config: &Config,
+    include_executables: bool,
+) -> Result<SuggestionData> {
+    let records = if paths.index_file.exists() {
+        open_index_with_recovery(paths, config)?.records()?
+    } else {
+        Vec::new()
+    };
+    let (bookmarks, navigation_history) = if paths.state_file.exists() {
+        match read_suggestion_context(&paths.state_file) {
+            Ok(context) => context,
+            Err(DirgoError::Database(redb::DatabaseError::DatabaseAlreadyOpen)) => {
+                Default::default()
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        Default::default()
+    };
+    let command_history = read_command_history(
+        &paths.suggestions_state_file,
+        unix_now(),
+        &config.suggestions,
+    )?;
+    Ok(SuggestionData {
+        records,
+        bookmarks,
+        navigation_history,
+        ranking: config.ranking.clone(),
+        executables: if include_executables {
+            discover_executables(env::var_os("PATH").as_deref())
+        } else {
+            Vec::new()
+        },
+        command_history,
+    })
 }
 
 fn init_logging(verbose: u8) {

@@ -170,7 +170,7 @@ fn action_flag(argument: &str) -> Option<&'static str> {
 pub enum Command {
     /// Connect Dirgo to your shell safely
     Setup(SetupArgs),
-    /// Print parent-shell integration for Zsh, Bash, or Fish
+    /// Print parent-shell integration for Zsh, Bash, Fish, or PowerShell
     Init {
         /// Shell whose integration script should be generated
         shell: Shell,
@@ -246,8 +246,44 @@ pub enum Command {
         /// Whether version notifications should be shown
         mode: UpdateNotificationMode,
     },
+    /// Manage shell-native suggestions and their local history
+    Suggestions {
+        #[command(subcommand)]
+        command: SuggestionsCommand,
+    },
     #[command(name = "__check-update", hide = true)]
     CheckUpdate,
+    #[command(name = "__suggest", hide = true)]
+    Suggest,
+    #[command(name = "__suggest-worker", hide = true)]
+    SuggestWorker {
+        #[arg(long, hide = true)]
+        ready: bool,
+    },
+    #[command(name = "__suggest-record", hide = true)]
+    SuggestRecord,
+    #[command(name = "__suggest-enabled", hide = true)]
+    SuggestEnabled,
+    #[command(name = "__suggest-history-enabled", hide = true)]
+    SuggestHistoryEnabled,
+    #[command(name = "__suggest-shell", hide = true)]
+    SuggestShell {
+        #[arg(long, value_enum)]
+        shell: Shell,
+        #[arg(long)]
+        cwd: PathBuf,
+    },
+    #[command(name = "__suggest-pick", hide = true)]
+    SuggestPick {
+        #[arg(long, value_enum)]
+        shell: Shell,
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long)]
+        request_path: PathBuf,
+        #[arg(long)]
+        output_path: PathBuf,
+    },
     #[command(name = "__resolve", hide = true)]
     Resolve(ResolveArgs),
 }
@@ -256,6 +292,33 @@ pub enum Command {
 pub enum UpdateNotificationMode {
     On,
     Off,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SuggestionsCommand {
+    /// Enable suggestion hooks for new shell sessions
+    Enable,
+    /// Disable suggestion hooks without deleting local history
+    Disable,
+    /// Show effective suggestion and history settings
+    Status,
+    /// Inspect suggestion storage and integration prerequisites
+    Doctor,
+    /// Manage opt-in command history
+    History {
+        #[command(subcommand)]
+        command: SuggestionsHistoryCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SuggestionsHistoryCommand {
+    /// Allow filtered command history to improve suggestions
+    Enable,
+    /// Stop recording and reading command history
+    Disable,
+    /// Remove all command-history records
+    Clear,
 }
 
 #[derive(Debug, Args)]

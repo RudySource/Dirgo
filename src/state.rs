@@ -3,7 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{
+    Database, ReadOnlyDatabase, ReadableDatabase, ReadableTable, ReadableTableMetadata,
+    TableDefinition,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -473,6 +476,34 @@ impl StateStore {
     }
 }
 
+/// Loads suggestion inputs without taking the exclusive database lock used by
+/// state mutations. This keeps concurrent shell redraws independent and never
+/// creates state merely because the prompt requested a suggestion.
+pub fn read_suggestion_context(
+    path: &Path,
+) -> Result<(HashMap<String, Bookmark>, HashMap<PathBuf, PathHistory>)> {
+    let db = ReadOnlyDatabase::open(path)?;
+    let read = db.begin_read()?;
+
+    let bookmark_table = read.open_table(BOOKMARKS)?;
+    let mut bookmarks = HashMap::with_capacity(bookmark_table.len()? as usize);
+    for item in bookmark_table.iter()? {
+        let (_, value) = item?;
+        let bookmark: Bookmark = serde_json::from_slice(value.value())?;
+        bookmarks.insert(bookmark.name.clone(), bookmark);
+    }
+    drop(bookmark_table);
+
+    let history_table = read.open_table(HISTORY)?;
+    let mut history = HashMap::with_capacity(history_table.len()? as usize);
+    for item in history_table.iter()? {
+        let (_, value) = item?;
+        let row: PathHistory = serde_json::from_slice(value.value())?;
+        history.insert(row.path.clone(), row);
+    }
+    Ok((bookmarks, history))
+}
+
 fn recoverable_storage_error(error: &DirgoError) -> bool {
     matches!(
         error,
@@ -500,6 +531,20 @@ mod tests {
 
     fn store(temp: &tempfile::TempDir) -> StateStore {
         StateStore::open(&temp.path().join("state.redb")).expect("state")
+    }
+
+    #[test]
+    fn suggestion_context_supports_multiple_concurrent_readers() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("state.redb");
+        drop(StateStore::open(&path).expect("initialize state"));
+
+        let first = ReadOnlyDatabase::open(&path).expect("first reader");
+        let context = read_suggestion_context(&path).expect("second reader");
+
+        assert!(context.0.is_empty());
+        assert!(context.1.is_empty());
+        drop(first);
     }
 
     #[test]

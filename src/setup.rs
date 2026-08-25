@@ -24,7 +24,7 @@ struct SetupReceipt {
 pub fn run(paths: &AppPaths, args: &SetupArgs, no_color: bool, no_unicode: bool) -> Result<i32> {
     let shell = args.shell.or_else(detect_shell).ok_or_else(|| {
         DirgoError::User(
-            "Dirgo could not detect a supported shell; use `dgo setup --shell zsh|bash|fish`"
+            "Dirgo could not detect a supported shell; use `dgo setup --shell zsh|bash|fish|powershell`"
                 .into(),
         )
     })?;
@@ -134,11 +134,15 @@ pub fn run(paths: &AppPaths, args: &SetupArgs, no_color: bool, no_unicode: bool)
 }
 
 fn detect_shell() -> Option<Shell> {
+    if cfg!(windows) && env::var_os("PSModulePath").is_some() {
+        return Some(Shell::PowerShell);
+    }
     let executable = PathBuf::from(env::var_os("SHELL")?);
     match executable.file_name()?.to_string_lossy().as_ref() {
         "zsh" => Some(Shell::Zsh),
         "bash" => Some(Shell::Bash),
         "fish" => Some(Shell::Fish),
+        "pwsh" | "powershell" | "powershell.exe" => Some(Shell::PowerShell),
         _ => None,
     }
 }
@@ -165,6 +169,9 @@ fn default_rc_file(shell: Shell) -> Result<PathBuf> {
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"))
             .join("fish/config.fish"),
+        Shell::PowerShell => dirs::document_dir()
+            .unwrap_or_else(|| home.join("Documents"))
+            .join("PowerShell/Microsoft.PowerShell_profile.ps1"),
     })
 }
 
@@ -214,14 +221,19 @@ fn integration_block(shell: Shell) -> Result<String> {
     let mut lines = vec![START_MARKER.to_string()];
     let binary_dir = effective_binary_dir()?;
     let escaped = shell_escape::escape(binary_dir.to_string_lossy()).into_owned();
+    let powershell_path = binary_dir.to_string_lossy().replace('\'', "''");
     lines.push(match shell {
         Shell::Zsh | Shell::Bash => format!("export PATH={escaped}:\"$PATH\""),
         Shell::Fish => format!("fish_add_path --path {escaped}"),
+        Shell::PowerShell => format!("$env:PATH = '{powershell_path};' + $env:PATH"),
     });
     lines.push(match shell {
         Shell::Zsh => "eval \"$(command dgo init zsh)\"".into(),
         Shell::Bash => "eval \"$(command dgo init bash)\"".into(),
         Shell::Fish => "command dgo init fish | source".into(),
+        Shell::PowerShell => {
+            "& ([scriptblock]::Create((& dgo init powershell | Out-String)))".into()
+        }
     });
     lines.push(END_MARKER.to_string());
     Ok(lines.join("\n"))
@@ -495,6 +507,16 @@ mod tests {
                 .expect("inline marker text"),
             None
         );
+    }
+
+    #[test]
+    fn powershell_managed_block_loads_generated_code_without_expression_evaluation() {
+        let block = integration_block(Shell::PowerShell).expect("PowerShell block");
+        assert!(block.contains("scriptblock]::Create"));
+        assert!(block.contains("dgo init powershell"));
+        assert!(!block.contains("Invoke-Expression"));
+        assert_eq!(block.matches(START_MARKER).count(), 1);
+        assert_eq!(block.matches(END_MARKER).count(), 1);
     }
 
     #[cfg(unix)]

@@ -47,9 +47,18 @@ jobs:
         run: |
           crate_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
           test "$GITHUB_REF_NAME" = "v$crate_version"
+          manifest_version=$(sed -n "s/^[[:space:]]*ModuleVersion = '\([^']*\)'.*/\1/p" powershell/DirgoPredictor/DirgoPredictor.psd1)
+          test "$manifest_version" = "$crate_version"
 
       - run: cargo test --locked --target ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }} --bin dgo
+
+      - name: Build PowerShell predictor
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          dotnet restore powershell/DirgoPredictor/DirgoPredictor.csproj --locked-mode
+          dotnet build powershell/DirgoPredictor/DirgoPredictor.csproj --configuration Release --no-restore
 
       - name: Verify Linux glibc compatibility baseline
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -78,6 +87,9 @@ jobs:
           $package = "dirgo-$env:GITHUB_REF_NAME-${{ matrix.target }}"
           New-Item -ItemType Directory -Force "stage/$package", dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/dgo.exe", README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE-APACHE, LICENSE-MIT, SECURITY.md, SUPPORT.md "stage/$package/"
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          New-Item -ItemType Directory -Force "stage/$package/DirgoPredictor/$version" | Out-Null
+          Copy-Item powershell/DirgoPredictor/bin/Release/net8.0/DirgoPredictor.dll, powershell/DirgoPredictor/DirgoPredictor.psd1 "stage/$package/DirgoPredictor/$version/"
           Copy-Item docs "stage/$package/" -Recurse
           & "stage/$package/dgo.exe" --version
           Compress-Archive -Path "stage/$package" -DestinationPath "dist/$package.zip"
@@ -178,3 +190,55 @@ jobs:
           git -C homebrew-tap add Formula/dirgo.rb
           git -C homebrew-tap commit -m "brew: update dirgo to $GITHUB_REF_NAME"
           git -C homebrew-tap push origin HEAD:main
+
+  scoop:
+    name: update Scoop bucket
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Detect bucket token
+        id: bucket-token
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          if [[ -n "$SCOOP_BUCKET_TOKEN" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SCOOP_BUCKET_TOKEN is not configured; skipping the Scoop bucket update."
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.bucket-token.outputs.configured == 'true'
+        with:
+          path: source
+      - name: Download published checksums
+        if: steps.bucket-token.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.bucket-token.outputs.configured == 'true'
+        with:
+          repository: RudySource/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+      - name: Render and validate manifest
+        if: steps.bucket-token.outputs.configured == 'true'
+        run: |
+          source/scripts/render-scoop-manifest.sh "$GITHUB_REF_NAME" release/SHA256SUMS scoop-bucket/bucket/dirgo.json
+          jq -e . scoop-bucket/bucket/dirgo.json >/dev/null
+          git -C scoop-bucket diff --check
+      - name: Publish manifest update
+        if: steps.bucket-token.outputs.configured == 'true'
+        run: |
+          if git -C scoop-bucket diff --quiet -- bucket/dirgo.json; then
+            echo "Scoop manifest is already current."
+            exit 0
+          fi
+          git -C scoop-bucket config user.name "github-actions[bot]"
+          git -C scoop-bucket config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C scoop-bucket add bucket/dirgo.json
+          git -C scoop-bucket commit -m "scoop: update dirgo to $GITHUB_REF_NAME"
+          git -C scoop-bucket push origin HEAD:main

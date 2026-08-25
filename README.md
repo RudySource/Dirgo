@@ -100,7 +100,9 @@ The installer detects your platform, verifies the release checksum, installs to 
 irm https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1 | iex
 ```
 
-The PowerShell installer verifies SHA-256 before copying `dgo.exe` and asks before changing your user `PATH`.
+The PowerShell installer verifies SHA-256 before copying `dgo.exe` and its
+predictor module, then asks before changing your user `PATH`. Open a new
+PowerShell 7+ session and run `dgo setup` to connect parent-shell navigation.
 
 Prefer Scoop? Add the official bucket and install Dirgo:
 
@@ -110,11 +112,14 @@ scoop install rudysource/dirgo
 ```
 
 > [!NOTE]
-> Windows currently includes the native CLI and picker, but not parent-shell navigation. A PowerShell wrapper is planned for a later release.
+> Windows support targets PowerShell 7+ and Windows Terminal. Legacy Windows
+> PowerShell 5.1 and `cmd.exe` are not supported.
 
 ### What setup changes
 
-`dgo setup` manages one clearly marked block in your Zsh, Bash, or Fish startup file. Before writing, it previews the target and content. On approval it creates a timestamped backup and replaces the file atomically.
+`dgo setup` manages one clearly marked block in your Zsh, Bash, Fish, or
+PowerShell profile. Before writing, it previews the target and content. On
+approval it creates a timestamped backup and replaces the file atomically.
 
 ```bash
 dgo setup --dry-run     # preview only
@@ -137,7 +142,10 @@ sha256sum --check SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching entry in `SHA256SUMS`. Extract `dgo` (`dgo.exe` on Windows) into a directory on `PATH`, then run `dgo setup` on Zsh, Bash, or Fish.
+On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching
+entry in `SHA256SUMS`. Extract the whole archive into a directory on `PATH`,
+keeping the versioned `DirgoPredictor` directory beside `dgo.exe`, then run
+`dgo setup`.
 
 Release assets also carry GitHub artifact attestations. With the GitHub CLI installed, verify provenance with `gh attestation verify <archive> --repo RudySource/Dirgo`.
 
@@ -155,6 +163,17 @@ cargo build --release --locked
 install -m 755 target/release/dgo ~/.local/bin/dgo
 dgo setup
 ```
+
+That builds the cross-platform CLI and the safe PowerShell `Ctrl+F` fallback.
+To build the native PowerShell 7.4 predictor on Windows, also install .NET 8,
+then run:
+
+```powershell
+dotnet build powershell/DirgoPredictor/DirgoPredictor.csproj --configuration Release --locked-mode
+```
+
+Keep the resulting DLL plus `DirgoPredictor.psd1` under
+`DirgoPredictor/<version>` beside `dgo.exe`.
 
 </details>
 
@@ -217,12 +236,36 @@ dgo config path | show         inspect configuration
 dgo doctor                     diagnose the installation
 dgo stats                      show local index statistics
 dgo support                    show support and security guidance
+dgo suggestions enable         enable local shell suggestions
+dgo suggestions status         inspect suggestion privacy settings
+dgo suggestions history enable opt in to filtered command history
+dgo suggestions history clear  erase stored command suggestions
 dgo --update                   install the latest stable release
 dgo update-notifications off   disable new-version notices
 dgo update-notifications on    enable new-version notices
 ```
 
 Run `dgo --help` or `dgo <command> --help` for the complete interface.
+
+### Shell-native suggestions
+
+Suggestions are local and opt-in. Enable them, then open a new shell or reload
+the managed Dirgo integration:
+
+```bash
+dgo suggestions enable
+```
+
+Press `Ctrl+F` to insert the best suggestion without executing it. In Zsh,
+Bash 4+, and Fish, `Shift+Tab` opens the explicit source-labelled list. On
+PowerShell 7.4.x with PSReadLine 2.2.2+, Dirgo also participates in native
+inline and list prediction; `F2` switches PSReadLine's view. Other PowerShell 7
+minor versions retain parent-shell navigation and safe `Ctrl+F` insertion.
+
+Command-history suggestions remain off until separately enabled with
+`dgo suggestions history enable`. Likely credentials and unsafe terminal text
+are rejected before storage. Disable collection without deleting existing data
+with `history disable`, or erase only this store with `history clear`.
 
 Dirgo checks GitHub Releases in a detached background process at most once per
 day. A later invocation displays a short notice when a newer stable version is
@@ -280,9 +323,18 @@ height_percent = 70
 
 [actions]
 editor = "auto"
+
+[suggestions]
+enabled = false
+command_history = false
+max_results = 8
+retention_entries = 10000
+retention_days = 180
+deny_patterns = []
 ```
 
 `actions.editor` accepts one executable name or path, never a shell command line.
+Suggestion and command-history enablement are separate privacy choices.
 `ui.height_percent` is capped to the useful picker content height, so closing the picker does not leave a large empty terminal block.
 
 </details>
@@ -298,10 +350,10 @@ State growth is bounded: history retains at most 50,000 rows, each shell session
 | macOS Apple Silicon | One-command installer, Homebrew, archive | Zsh, Bash, Fish |
 | macOS Intel | One-command installer, archive | Zsh, Bash, Fish |
 | Linux x86_64 GNU | One-command installer, archive; glibc 2.35+ | Zsh, Bash, Fish |
-| Windows x86_64 MSVC | PowerShell installer, archive | CLI, TUI, query, bookmarks, and actions |
+| Windows x86_64 MSVC | PowerShell installer, Scoop, archive | PowerShell 7+ navigation and insertion; native predictor on 7.4.x |
 
-> [!NOTE]
-> Windows does not yet include a PowerShell or cmd parent-shell wrapper. The CLI and picker work, but changing the parent shell directory requires dedicated integration.
+WSL uses its installed Zsh, Bash, or Fish adapter. Windows PowerShell 5.1 and
+`cmd.exe` are outside the supported matrix.
 
 ## Performance
 
@@ -324,6 +376,7 @@ dgo bench --query punk --samples 5
 ## Privacy and security
 
 - No telemetry, analytics, account, cloud sync, or network call during normal use.
+- Suggestions and command-history collection are disabled independently by default; suggestion data remains local and can be cleared without touching navigation history.
 - Paths cross the shell boundary as data and are never interpolated into executable shell text.
 - Human-facing output escapes terminal controls and bidirectional overrides from untrusted filenames.
 - Index publication is atomic; corrupted local data is preserved under a timestamped backup name before recovery.
@@ -349,7 +402,8 @@ UTF-8 paths with spaces, quotes, Unicode, brackets, emoji, and leading dashes ar
 
 ## Technology
 
-GitHub currently identifies the repository as primarily **Rust**, with small **Shell** and **Ruby** surfaces.
+The implementation is primarily **Rust**, with focused Shell, PowerShell, C#,
+and Ruby packaging surfaces.
 
 | Layer | Technology | Role |
 | --- | --- | --- |
@@ -357,27 +411,26 @@ GitHub currently identifies the repository as primarily **Rust**, with small **S
 | Terminal UI | Ratatui + Crossterm | Responsive picker and terminal restoration |
 | Matching | Nucleo | Fast, cancellable fuzzy matching |
 | Storage | redb | Transactional local index and persistent state |
-| Integration | Zsh, Bash, Fish | Parent-shell navigation and completions |
+| Integration | Zsh, Bash, Fish, PowerShell | Parent-shell navigation, completions, and safe suggestions |
+| Windows prediction | C# / PSReadLine subsystem | Native inline and list suggestions through a bounded local worker |
 | Packaging | Shell, PowerShell, Homebrew | Verified, low-friction installation |
 
 ## Release status and roadmap
 
-**Dirgo 0.3 is the current product release.** It builds on the completed 0.2
-foundation with order-independent action flags, a bounded inline picker,
-scrollable directory previews, and release-driven Homebrew formula generation.
-The project remains in maintenance mode: future work is additive and does not
-block normal use of the current release.
+**Dirgo 0.4 is the current product release.** It adds private shell-native
+suggestions and complete PowerShell 7 integration while preserving the
+shell as the sole owner of editing and execution.
 
 | Status | Release area | Outcome |
 | --- | --- | --- |
 | ✅ Shipped | Navigation core | Indexed discovery, fuzzy picker, bookmarks, recent history, project roots, and per-shell back/forward navigation |
 | ✅ Shipped | Safety and privacy | Local-only operation, escaped terminal output, bounded state, non-destructive recovery, and repository hygiene gates |
-| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, the official Scoop bucket, verified archives, and reversible Zsh/Bash/Fish setup |
+| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, the official Scoop bucket, verified archives, and reversible Zsh/Bash/Fish/PowerShell setup |
 | ✅ Shipped | Release quality | Rust formatting and lint gates, unit/integration/PTY tests, dependency policy, checksums, and build attestations |
 | ✅ Shipped | Action workflow | Open, Finder, editor, clipboard, and print actions work before or after a query and pass safely through shell integration |
 | ✅ Shipped | Picker ergonomics | Useful-content inline height, reliable cursor restoration, configurable preview visibility, and scrollable bounded directory contents |
-| ✅ Shipped | Package automation | Release checksums render a validated Homebrew formula, with a safe manual fallback when cross-repository credentials are not configured |
-| 🔭 Future | Windows navigation | PowerShell parent-shell wrapper so `dgo` can change the caller's directory |
+| ✅ Shipped | Package automation | Release checksums render validated Homebrew and Scoop packages, with a safe manual fallback when cross-repository credentials are not configured |
+| ✅ Shipped | Shell suggestions | Opt-in local providers, safe insertion, explicit Unix picker, native PowerShell predictor, privacy controls, and bounded storage |
 | 🔭 Future | More platforms | Linux ARM64 and musl builds, followed by additional package managers where demand justifies maintenance |
 | 🔭 Future | Index freshness | Optional incremental refresh or filesystem watching without adding telemetry or a required background service |
 | 🔭 Future | Distribution trust | Platform code signing/notarization and a stable-package publication flow for ecosystems beyond Homebrew |

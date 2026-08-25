@@ -15,6 +15,7 @@ pub struct Config {
     pub ranking: RankingConfig,
     pub ui: UiConfig,
     pub actions: ActionConfig,
+    pub suggestions: SuggestionsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,17 @@ pub struct ActionConfig {
     pub editor: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SuggestionsConfig {
+    pub enabled: bool,
+    pub command_history: bool,
+    pub max_results: usize,
+    pub retention_entries: usize,
+    pub retention_days: u64,
+    pub deny_patterns: Vec<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -53,6 +65,7 @@ impl Default for Config {
             ranking: RankingConfig::default(),
             ui: UiConfig::default(),
             actions: ActionConfig::default(),
+            suggestions: SuggestionsConfig::default(),
         }
     }
 }
@@ -84,6 +97,19 @@ impl Default for ActionConfig {
     fn default() -> Self {
         Self {
             editor: "auto".into(),
+        }
+    }
+}
+
+impl Default for SuggestionsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            command_history: false,
+            max_results: 8,
+            retention_entries: 10_000,
+            retention_days: 180,
+            deny_patterns: Vec::new(),
         }
     }
 }
@@ -121,6 +147,28 @@ impl Config {
         if !matches!(self.ui.icons.as_str(), "auto" | "always" | "never") {
             return Err(DirgoError::Config(
                 "ui.icons must be one of: auto, always, never".into(),
+            ));
+        }
+        if !(1..=20).contains(&self.suggestions.max_results) {
+            return Err(DirgoError::Config(
+                "suggestions.max_results must be between 1 and 20".into(),
+            ));
+        }
+        if !(1..=50_000).contains(&self.suggestions.retention_entries) {
+            return Err(DirgoError::Config(
+                "suggestions.retention_entries must be between 1 and 50000".into(),
+            ));
+        }
+        if !(1..=3_650).contains(&self.suggestions.retention_days) {
+            return Err(DirgoError::Config(
+                "suggestions.retention_days must be between 1 and 3650".into(),
+            ));
+        }
+        if self.suggestions.deny_patterns.iter().any(|pattern| {
+            pattern.is_empty() || pattern.len() > 256 || pattern.chars().any(char::is_control)
+        }) {
+            return Err(DirgoError::Config(
+                "suggestions.deny_patterns entries must contain 1 to 256 printable bytes".into(),
             ));
         }
         for (name, weight) in [
@@ -188,5 +236,29 @@ mod tests {
         config.ranking.bookmarks = 0.0;
         config.ranking.projects = 0.0;
         config.validate().expect("zero weights are valid");
+    }
+
+    #[test]
+    fn suggestions_are_opt_in_and_old_configs_receive_safe_defaults() {
+        let config = Config::default();
+        assert!(!config.suggestions.enabled);
+        assert!(!config.suggestions.command_history);
+        assert_eq!(config.suggestions.max_results, 8);
+
+        let parsed: Config = toml::from_str("schema_version = 1\nroots = ['/tmp']\n")
+            .expect("legacy config remains readable");
+        assert!(!parsed.suggestions.enabled);
+        parsed.validate().expect("legacy defaults are valid");
+    }
+
+    #[test]
+    fn suggestion_limits_are_bounded() {
+        let mut config = Config::default();
+        config.suggestions.max_results = 21;
+        assert!(config.validate().is_err());
+
+        config.suggestions.max_results = 8;
+        config.suggestions.retention_entries = 0;
+        assert!(config.validate().is_err());
     }
 }

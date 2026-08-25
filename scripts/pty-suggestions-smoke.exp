@@ -1,0 +1,154 @@
+#!/usr/bin/expect -f
+
+# Exercises suggestion insertion inside real interactive shells. Enter is sent
+# separately after the insertion chord so the integration cannot conflate
+# insertion with execution.
+set timeout 25
+encoding system utf-8
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-suggestions-[pid]-[clock seconds]"
+set sandbox [file normalize $sandbox]
+set fixture_root "$sandbox/filesystem"
+file mkdir "$fixture_root/Projects/Punk"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$fixture_root\"\]"
+puts $config "\[suggestions\]"
+puts $config "enabled = true"
+puts $config "command_history = true"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(DGO_TEST_ROOT) "$fixture_root"
+set env(TERM) "xterm-256color"
+set env(LANG) "C.UTF-8"
+set env(LC_ALL) "C.UTF-8"
+set env(PATH) "[file dirname $env(DGO_BIN)]:$env(PATH)"
+if {[info exists env(DGO_BASH_MAJOR)]} {
+    set bash_version $env(DGO_BASH_MAJOR)
+} elseif {$tcl_platform(os) eq "Darwin"} {
+    set bash_version 3
+} else {
+    set bash_version 4
+}
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+set refresh_result [wait]
+if {[lindex $refresh_result 3] != 0} {
+    file delete -force $sandbox
+    exit [lindex $refresh_result 3]
+}
+
+proc run_shell {name executable setup binding_check verify picker_reset picker_verify} {
+    global env
+    spawn -noecho {*}$executable
+    after 500
+    send -- "$setup\r"
+    expect {
+        -exact "SUGGESTIONS:$name:ready" {}
+        timeout { puts stderr "$name setup timed out"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    expect -exact "DGO-$name> "
+    send -- "$binding_check\r"
+    expect {
+        -exact "SUGGESTIONS:$name:bound" {}
+        timeout { puts stderr "$name suggestion key is not bound"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    expect -exact "DGO-$name> "
+    send -- "printf '%s\\0\\0' 'cd pun' | command dgo __suggest-shell --shell $name --cwd \"\$PWD\"\r"
+    expect {
+        -re {/Projects/Punk} {}
+        timeout { puts stderr "$name adapter protocol returned no suggestion"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    expect -exact "DGO-$name> "
+    send -- "cd pun"
+    after 1000
+    send -- "\x06"
+    after 300
+    send -- "\r"
+    expect {
+        -exact "DGO-$name> " {}
+        timeout { puts stderr "$name suggestion insertion timed out"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    send -- "$verify\r"
+    expect {
+        -exact "SUGGESTIONS:$name:ok" {}
+        timeout { puts stderr "$name inserted the wrong buffer"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    expect -exact "DGO-$name> "
+    send -- "$picker_reset\r"
+    expect -exact "DGO-$name> "
+    send -- "cd pun"
+    send -- "\x1b\[Z"
+    expect {
+        -re {Dirgo.*suggestions} {}
+        timeout { puts stderr "$name suggestion picker did not open"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    send -- "\r"
+    after 300
+    send -- "\r"
+    expect -exact "DGO-$name> "
+    send -- "$picker_verify\r"
+    expect {
+        -exact "SUGGESTIONS:$name:picker-ok" {}
+        timeout { puts stderr "$name picker inserted or executed the wrong buffer"; send -- "\003exit\r"; expect eof; return 1 }
+    }
+    send -- "exit\r"
+    after 500
+    expect eof
+    set result [wait]
+    return [expr {[lindex $result 3] == 0 ? 0 : 1}]
+}
+
+set failed 0
+set zsh_setup {stty rows 24 columns 100; PS1='DGO-zsh> '; eval "$($DGO_BIN init zsh)"; cd "$DGO_TEST_ROOT"; print -r -- 'SUGGESTIONS:zsh:ready'}
+set zsh_binding {[[ "$(bindkey '^F')" == *'_dgo_accept_suggestion' ]] && print -r -- 'SUGGESTIONS:zsh:bound'}
+set zsh_verify {[[ "$PWD" == "$DGO_TEST_ROOT/Projects/Punk" ]] && print -r -- 'SUGGESTIONS:zsh:ok'}
+set zsh_reset {builtin cd "$DGO_TEST_ROOT"}
+set zsh_picker_verify {[[ "$PWD" == "$DGO_TEST_ROOT/Projects/Punk" ]] && print -r -- 'SUGGESTIONS:zsh:picker-ok'}
+if {[run_shell zsh [list /bin/zsh -f] $zsh_setup $zsh_binding $zsh_verify $zsh_reset $zsh_picker_verify] != 0} {
+    set failed 1
+}
+if {![file exists "$sandbox/state/dirgo/suggestions.redb"]} {
+    puts stderr "zsh command-history hook did not create its private store"
+    set failed 1
+}
+
+set bash_setup {stty rows 24 columns 100; PS1='DGO-bash> '; eval "$($DGO_BIN init bash)"; cd "$DGO_TEST_ROOT"; printf 'SUGGESTIONS:bash:ready\n'}
+set bash_binding {declare -F _dgo_accept_suggestion >/dev/null && printf 'SUGGESTIONS:bash:bound\n'}
+set bash_verify {[[ "$PWD" == "$DGO_TEST_ROOT/Projects/Punk" ]] && printf 'SUGGESTIONS:bash:ok\n'}
+set bash_reset {builtin cd "$DGO_TEST_ROOT"}
+set bash_picker_verify {[[ "$PWD" == "$DGO_TEST_ROOT/Projects/Punk" ]] && printf 'SUGGESTIONS:bash:picker-ok\n'}
+if {$bash_version < 4} {
+    puts "SUGGESTIONS:bash:skipped (Bash 4+ is required; found Bash $bash_version)"
+} else {
+    if {[run_shell bash [list /bin/bash --noprofile --norc] $bash_setup $bash_binding $bash_verify $bash_reset $bash_picker_verify] != 0} {
+        set failed 1
+    }
+}
+
+set fish [auto_execok fish]
+if {$fish eq ""} {
+    puts "SUGGESTIONS:fish:skipped (fish is not installed)"
+} else {
+    set fish_setup {stty rows 24 columns 100; function fish_prompt; printf 'DGO-fish> '; end; $DGO_BIN init fish | source; cd "$DGO_TEST_ROOT"; echo 'SUGGESTIONS:fish:ready'}
+    set fish_binding {string match -q '*__dgo_accept_suggestion*' (bind \cf); and echo 'SUGGESTIONS:fish:bound'}
+    set fish_verify {test "$PWD" = "$DGO_TEST_ROOT/Projects/Punk"; and echo 'SUGGESTIONS:fish:ok'}
+    set fish_reset {builtin cd "$DGO_TEST_ROOT"}
+    set fish_picker_verify {test "$PWD" = "$DGO_TEST_ROOT/Projects/Punk"; and echo 'SUGGESTIONS:fish:picker-ok'}
+    if {[run_shell fish [list $fish --no-config] $fish_setup $fish_binding $fish_verify $fish_reset $fish_picker_verify] != 0} {
+        set failed 1
+    }
+}
+
+file delete -force $sandbox
+exit $failed

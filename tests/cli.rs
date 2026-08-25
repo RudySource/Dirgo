@@ -151,7 +151,7 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support update-notifications")
+            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications")
                 .and(predicate::str::contains("_dgo_bookmarks")),
         );
 }

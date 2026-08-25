@@ -7,7 +7,10 @@ use std::{
 
 use fs2::FileExt;
 use ignore::{DirEntry, WalkBuilder, WalkState};
-use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{
+    Database, ReadOnlyDatabase, ReadableDatabase, ReadableTable, ReadableTableMetadata,
+    TableDefinition,
+};
 
 use crate::{
     DirgoError, Result,
@@ -31,13 +34,13 @@ pub struct IndexSummary {
 }
 
 pub struct IndexStore {
-    db: Database,
+    db: ReadOnlyDatabase,
 }
 
 impl IndexStore {
     pub fn open(path: &Path) -> Result<Self> {
         let store = Self {
-            db: Database::create(path)?,
+            db: ReadOnlyDatabase::open(path)?,
         };
         store.validate_schema()?;
         Ok(store)
@@ -540,6 +543,7 @@ mod tests {
             config_file: temp.path().join("config.toml"),
             index_file: cache_dir.join("index.redb"),
             state_file: state_dir.join("state.redb"),
+            suggestions_state_file: state_dir.join("suggestions.redb"),
             update_cache_file: cache_dir.join("update.json"),
             update_check_file: cache_dir.join("update-check"),
             update_notice_disabled_file: state_dir.join("update-notifications-disabled"),
@@ -739,6 +743,23 @@ mod tests {
         assert!(!old_records.iter().any(|record| record.basename == "new"));
         assert!(new_records.iter().any(|record| record.basename == "new"));
         assert!(!new_records.iter().any(|record| record.basename == "old"));
+    }
+
+    #[test]
+    fn multiple_readers_can_open_the_published_index_concurrently() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("root");
+        fs::create_dir_all(root.join("shared")).expect("fixture");
+        let paths = app_paths(&temp);
+        rebuild(&paths, &config(&root)).expect("rebuild");
+
+        let first = IndexStore::open(&paths.index_file).expect("first reader");
+        let second = IndexStore::open(&paths.index_file).expect("second reader");
+
+        assert_eq!(
+            first.record_count().expect("first count"),
+            second.record_count().expect("second count")
+        );
     }
 
     #[cfg(unix)]

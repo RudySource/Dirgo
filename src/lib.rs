@@ -12,6 +12,7 @@ pub mod search;
 pub mod setup;
 pub mod shell;
 pub mod state;
+pub mod suggestions;
 pub mod terminal;
 pub mod tui;
 pub mod update;

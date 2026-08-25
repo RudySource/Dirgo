@@ -1,0 +1,27 @@
+{
+    "version": "@VERSION@",
+    "description": "Fast, local-first directory navigation for your terminal.",
+    "homepage": "https://github.com/RudySource/Dirgo",
+    "license": "MIT",
+    "notes": [
+        "Run 'dgo setup' from PowerShell 7+ to enable parent-shell navigation and safe suggestions.",
+        "Native inline and list prediction is available on PowerShell 7.4.x with PSReadLine 2.2.2+."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/RudySource/Dirgo/releases/download/v@VERSION@/dirgo-v@VERSION@-x86_64-pc-windows-msvc.zip",
+            "hash": "@WINDOWS_SHA256@",
+            "extract_dir": "dirgo-v@VERSION@-x86_64-pc-windows-msvc"
+        }
+    },
+    "bin": "dgo.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/RudySource/Dirgo/releases/download/v$version/dirgo-v$version-x86_64-pc-windows-msvc.zip",
+                "extract_dir": "dirgo-v$version-x86_64-pc-windows-msvc"
+            }
+        }
+    }
+}

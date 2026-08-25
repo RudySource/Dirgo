@@ -36,8 +36,9 @@ navigation history and is used only after explicit opt-in.
 - A failed, slow, or unavailable suggestion worker must not delay normal input.
 - Request text crosses process boundaries through standard input, never command
   arguments, environment variables, `eval`, or `Invoke-Expression`.
-- Command history is disabled by default, stored locally with user-only access,
-  and removable independently from navigation history.
+- Command history is disabled by default, stored in the user's local state
+  directory (mode `0600` on Unix), and removable independently from navigation
+  history.
 - No provider uses a network connection, telemetry, or an AI service.
 - Each shell uses its native affordances. Feature presentation may differ when
   the host shell does not expose equivalent APIs.
@@ -46,13 +47,13 @@ navigation history and is used only after explicit opt-in.
 
 | Shell | Presentation |
 | --- | --- |
-| Zsh | Inline suffix and explicit list through ZLE |
-| Fish | Native dynamic completions without replacing built-in autosuggestions |
-| Bash | Readline completion and an explicit picker |
-| PowerShell 7.2+ | PSReadLine predictor inline and list views |
-| Windows PowerShell 5.1 | Completion-only compatibility mode |
+| Zsh | `Ctrl+F` insertion and an explicit `Shift+Tab` list through ZLE |
+| Fish | `Ctrl+F` insertion and an explicit `Shift+Tab` list without replacing built-in autosuggestions |
+| Bash 4+ | `Ctrl+F` insertion and an explicit `Shift+Tab` list through Readline |
+| PowerShell 7+ | `Ctrl+F` insertion; PowerShell 7.4.x also gets PSReadLine inline/list prediction |
 
-WSL uses the corresponding Linux shell adapter. `cmd.exe` is not supported.
+WSL uses the corresponding Linux shell adapter. Windows PowerShell 5.1 and
+`cmd.exe` are not supported.
 
 ## Data flow
 
@@ -65,6 +66,11 @@ WSL uses the corresponding Linux shell adapter. `cmd.exe` is not supported.
 4. The adapter discards stale responses and applies an edit only when the
    expected buffer suffix still matches.
 5. The shell renders the result and remains solely responsible for submission.
+
+The PowerShell predictor starts its worker before the first request and waits
+for a readiness frame without blocking input. A published index or command
+history change replaces the worker's immutable engine snapshot between frames;
+an in-flight frame always completes against one coherent snapshot.
 
 ## Accessibility and terminal behavior
 

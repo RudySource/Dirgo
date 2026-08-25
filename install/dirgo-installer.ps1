@@ -7,6 +7,7 @@ $installDirectory = if ($env:DIRGO_INSTALL_DIR) { $env:DIRGO_INSTALL_DIR } else 
 $asset = 'dirgo-x86_64-pc-windows-msvc.zip'
 $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("dirgo-install-" + [guid]::NewGuid().ToString('N'))
 $stagedBinary = $null
+$stagedModuleFiles = @()
 
 function Write-Success([string]$Message) {
     Write-Host "✓ $Message" -ForegroundColor Green
@@ -45,6 +46,18 @@ try {
     Expand-Archive -LiteralPath $archive -DestinationPath $expanded
     $binary = Get-ChildItem -Path $expanded -Filter 'dgo.exe' -File -Recurse | Select-Object -First 1
     if (-not $binary) { throw 'Release archive does not contain dgo.exe.' }
+    $predictorManifest = Get-ChildItem -Path $expanded -Filter 'DirgoPredictor.psd1' -File -Recurse | Select-Object -First 1
+    $predictorAssembly = Get-ChildItem -Path $expanded -Filter 'DirgoPredictor.dll' -File -Recurse | Select-Object -First 1
+    if (-not $predictorManifest -or -not $predictorAssembly) {
+        throw 'Release archive does not contain the PowerShell predictor module.'
+    }
+    if ($predictorManifest.DirectoryName -ne $predictorAssembly.DirectoryName) {
+        throw 'PowerShell predictor files are not from the same release directory.'
+    }
+    $moduleVersion = Split-Path -Leaf $predictorManifest.DirectoryName
+    if ($moduleVersion -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+        throw 'PowerShell predictor directory is not versioned.'
+    }
 
     New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
     $installedBinary = Join-Path $installDirectory 'dgo.exe'
@@ -52,6 +65,14 @@ try {
     Copy-Item -LiteralPath $binary.FullName -Destination $stagedBinary
     & $stagedBinary --version | Out-Null
     Move-Item -LiteralPath $stagedBinary -Destination $installedBinary -Force
+    $installedModule = Join-Path $installDirectory "DirgoPredictor/$moduleVersion"
+    New-Item -ItemType Directory -Force -Path $installedModule | Out-Null
+    foreach ($source in @($predictorManifest, $predictorAssembly)) {
+        $stagedModule = Join-Path $installedModule ('.dgo-install-' + [guid]::NewGuid().ToString('N'))
+        $stagedModuleFiles += $stagedModule
+        Copy-Item -LiteralPath $source.FullName -Destination $stagedModule
+        Move-Item -LiteralPath $stagedModule -Destination (Join-Path $installedModule $source.Name) -Force
+    }
     Write-Success "Installed to $installedBinary"
 
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -85,5 +106,10 @@ try {
     }
     if ($stagedBinary -and (Test-Path -LiteralPath $stagedBinary)) {
         Remove-Item -LiteralPath $stagedBinary -Force
+    }
+    foreach ($stagedModule in $stagedModuleFiles) {
+        if (Test-Path -LiteralPath $stagedModule) {
+            Remove-Item -LiteralPath $stagedModule -Force
+        }
     }
 }
