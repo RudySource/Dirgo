@@ -113,6 +113,11 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   fi
 
   typeset -g _DGO_LIVE_DEBOUNCE_SECONDS="$(command dgo __suggest-debounce 2>/dev/null)"
+  typeset -g _DGO_LIVE_TIMEOUT_MILLISECONDS="$(command dgo __suggest-native-timeout 2>/dev/null)"
+  typeset -g _DGO_LIVE_TIMEOUT_SECONDS='0.080'
+  if [[ "$_DGO_LIVE_TIMEOUT_MILLISECONDS" == <10-500> ]]; then
+    printf -v _DGO_LIVE_TIMEOUT_SECONDS '0.%03d' "$_DGO_LIVE_TIMEOUT_MILLISECONDS"
+  fi
 
   typeset -g _DGO_LIVE_GENERATION=0
   typeset -g _DGO_LIVE_FD=-1
@@ -266,11 +271,17 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     local generation=$_DGO_LIVE_GENERATION
     local snapshot="$_DGO_LIVE_SNAPSHOT" after="$RBUFFER" cwd="$PWD" rows=$LINES columns=$COLUMNS
     exec {_DGO_LIVE_FD}< <(
+      setopt localoptions nobgnice
       sleep "${_DGO_LIVE_DEBOUNCE_SECONDS:-0.030}"
       print -rn -- "$generation"$'\0'
       printf '%s\0%s\0' "$snapshot" "$after" |
         command dgo __suggest-complete --shell zsh --cwd "$cwd" \
-          --terminal-rows "$rows" --terminal-columns "$columns" 2>/dev/null
+          --terminal-rows "$rows" --terminal-columns "$columns" 2>/dev/null &
+      local completion_pid=$!
+      ( sleep "$_DGO_LIVE_TIMEOUT_SECONDS"; kill -TERM "$completion_pid" 2>/dev/null ) &
+      local timeout_pid=$!
+      wait "$completion_pid" 2>/dev/null
+      kill -TERM "$timeout_pid" 2>/dev/null
     )
     zle -F -w "$_DGO_LIVE_FD" _dgo_live_ready
   }
@@ -928,6 +939,9 @@ mod tests {
         assert!(script.contains("zle -F"));
         assert!(script.contains("__suggest-debounce"));
         assert!(script.contains("${_DGO_LIVE_DEBOUNCE_SECONDS:-0.030}"));
+        assert!(script.contains("_DGO_LIVE_TIMEOUT_SECONDS='0.080'"));
+        assert!(script.contains("kill -TERM \"$completion_pid\""));
+        assert!(script.contains("setopt localoptions nobgnice"));
         assert!(script.contains("_DGO_LIVE_GENERATION"));
         assert!(script.contains("_DGO_LIVE_SNAPSHOT"));
         assert!(script.contains("zle -M \"$panel\""));
