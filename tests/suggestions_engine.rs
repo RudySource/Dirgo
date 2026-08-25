@@ -6,8 +6,9 @@ use dirgo::{
     config::RankingConfig,
     model::{DirectoryRecord, PathHistory},
     suggestions::{
-        CommandHistoryEntry, PROTOCOL_VERSION, ShellKind, SuggestionData, SuggestionEngine,
-        SuggestionRequest, SuggestionSource,
+        CommandHistoryEntry, CompletionContext, PROTOCOL_VERSION, ShellKind, Suggestion,
+        SuggestionData, SuggestionEngine, SuggestionRequest, SuggestionSource, TextEdit,
+        TopSuggestions,
     },
 };
 
@@ -194,4 +195,58 @@ fn executable_discovery_is_bounded_unique_and_requires_execute_permission() {
         discover_executables(Some(path.as_os_str())),
         vec!["dgo-other".to_string(), "dgo-tool".to_string()]
     );
+}
+
+#[test]
+fn completion_context_finds_command_and_partial_subcommand_without_evaluating_shell_text() {
+    let context = CompletionContext::parse(ShellKind::Zsh, "dgo sl");
+
+    assert_eq!(context.command(), Some("dgo"));
+    assert_eq!(context.current_token(), "sl");
+    assert_eq!(context.replacement_start(), 4);
+    assert!(!context.is_option());
+}
+
+#[test]
+fn completion_context_recognizes_partial_options_and_preserves_quoted_tokens() {
+    let option = CompletionContext::parse(ShellKind::Bash, "dgo --upd");
+    assert_eq!(option.command(), Some("dgo"));
+    assert_eq!(option.current_token(), "--upd");
+    assert!(option.is_option());
+
+    let quoted = CompletionContext::parse(ShellKind::Zsh, "git commit -m 'release can");
+    assert_eq!(quoted.command(), Some("git"));
+    assert_eq!(quoted.current_token(), "release can");
+    assert_eq!(quoted.replacement_start(), 15);
+}
+
+#[test]
+fn bounded_top_k_keeps_only_best_unique_replacements_in_deterministic_order() {
+    let suggestion = |id: &str, replacement: &str, score: f64| Suggestion {
+        id: id.into(),
+        edit: TextEdit {
+            expected_before: "d".into(),
+            replacement: replacement.into(),
+        },
+        display: replacement.into(),
+        description: None,
+        source: SuggestionSource::Executable,
+        score,
+    };
+    let mut top = TopSuggestions::new(3);
+    top.push(suggestion("docker-low", "docker", 10.0));
+    top.push(suggestion("dirgo", "dgo", 40.0));
+    top.push(suggestion("delta", "delta", 30.0));
+    top.push(suggestion("docker-high", "docker", 50.0));
+    top.push(suggestion("dust", "dust", 20.0));
+
+    let results = top.finish();
+    assert_eq!(
+        results
+            .iter()
+            .map(|item| item.edit.replacement.as_str())
+            .collect::<Vec<_>>(),
+        vec!["docker", "dgo", "delta"]
+    );
+    assert_eq!(results[0].id, "docker-high");
 }

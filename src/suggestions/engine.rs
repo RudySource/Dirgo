@@ -1,4 +1,4 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 
 use crate::{
     config::RankingConfig,
@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::{
-    Suggestion, SuggestionRequest,
+    Suggestion, SuggestionRequest, TopSuggestions,
     providers::{
         CommandHistoryEntry, directory_query, directory_suggestions, executable_suggestions,
         history_suggestions,
@@ -64,32 +64,14 @@ impl SuggestionEngine {
             candidates.extend(super::providers::filesystem_suggestions(request));
         }
 
-        let mut unique = HashMap::<String, Suggestion>::new();
+        let mut top = TopSuggestions::new(request.max_results.min(20));
         for suggestion in candidates.into_iter().filter_map(sanitize_suggestion) {
             if suggestion.edit.replacement == request.before_cursor {
                 continue;
             }
-            match unique.entry(suggestion.edit.replacement.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(suggestion);
-                }
-                Entry::Occupied(mut entry) if suggestion.score > entry.get().score => {
-                    entry.insert(suggestion);
-                }
-                Entry::Occupied(_) => {}
-            }
+            top.push(suggestion);
         }
-
-        let mut suggestions: Vec<_> = unique.into_values().collect();
-        suggestions.sort_by(|left, right| {
-            right
-                .score
-                .total_cmp(&left.score)
-                .then_with(|| left.display.cmp(&right.display))
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        suggestions.truncate(request.max_results.min(20));
-        suggestions
+        top.finish()
     }
 
     fn prefix_records(&self, request: &SuggestionRequest) -> Vec<crate::model::DirectoryRecord> {
