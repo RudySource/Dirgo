@@ -43,6 +43,9 @@ fn suggestions(c: &mut Criterion) {
         before_cursor: "cd punk".into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
     };
     c.bench_with_input(
         BenchmarkId::new("warm_prefix", "100k_directories"),

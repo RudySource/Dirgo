@@ -110,6 +110,9 @@ fn hidden_suggestion_command_reads_the_buffer_from_stdin_and_emits_one_frame() {
         before_cursor: "cd pun".into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
     };
     let input = format!(
         "{}\n",
@@ -155,10 +158,18 @@ fn worker_serves_multiple_frames_and_recording_requires_history_opt_in() {
             before_cursor: before_cursor.into(),
             after_cursor: String::new(),
             max_results: 8,
+            terminal_rows: Some(24),
+            terminal_columns: Some(120),
+            presentation: dirgo::suggestions::SuggestionPresentation::List,
         })
         .expect("request json")
     };
-    let input = format!("{}\n{}\n", frame(1, "cd pun"), frame(2, "dgo pun"));
+    let input = format!(
+        "{}\n{}\n{}\n",
+        frame(1, "cd pun"),
+        frame(2, "dgo pun"),
+        frame(1, "dgo stale")
+    );
     let assert = fixture
         .command()
         .arg("__suggest-worker")
@@ -169,7 +180,7 @@ fn worker_serves_multiple_frames_and_recording_requires_history_opt_in() {
         .expect("utf8 responses")
         .lines()
         .collect();
-    assert_eq!(lines.len(), 2);
+    assert_eq!(lines.len(), 3);
     assert_eq!(
         serde_json::from_str::<SuggestionResponse>(lines[0])
             .expect("first response")
@@ -182,6 +193,10 @@ fn worker_serves_multiple_frames_and_recording_requires_history_opt_in() {
             .request_id,
         2
     );
+    let stale = serde_json::from_str::<SuggestionResponse>(lines[2]).expect("stale response");
+    assert_eq!(stale.request_id, 1);
+    assert!(stale.suggestions.is_empty());
+    assert_eq!(stale.error.as_deref(), Some("stale request id"));
 
     fixture
         .command()
@@ -275,6 +290,9 @@ fn disabling_suggestions_stops_an_already_loaded_history_hook_from_recording() {
         before_cursor: "cargo p".into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
     };
     let output = fixture
         .command()
@@ -305,7 +323,7 @@ fn worker_readiness_handshake_precedes_protocol_frames() {
         .write_stdin("")
         .assert()
         .success()
-        .stdout("READY 1\n");
+        .stdout("READY 2\n");
 }
 
 #[test]
@@ -349,6 +367,9 @@ fn long_lived_worker_reloads_command_history_after_it_changes() {
         before_cursor: "cargo t".into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
     };
     writeln!(
         input,
@@ -396,6 +417,9 @@ fn long_lived_worker_stops_serving_after_suggestions_are_disabled() {
         before_cursor: "cd pun".into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
     };
 
     writeln!(

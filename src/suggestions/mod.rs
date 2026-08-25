@@ -24,6 +24,6 @@ pub use settings::write_suggestions_config;
 pub use store::{CommandHistoryStore, read_command_history};
 pub use top_k::TopSuggestions;
 pub use types::{
-    PROTOCOL_VERSION, ShellKind, Suggestion, SuggestionRequest, SuggestionResponse,
-    SuggestionSource, TextEdit, apply_text_edit,
+    PROTOCOL_VERSION, ShellKind, Suggestion, SuggestionPresentation, SuggestionRequest,
+    SuggestionResponse, SuggestionSource, TextEdit, apply_text_edit, visible_result_limit,
 };

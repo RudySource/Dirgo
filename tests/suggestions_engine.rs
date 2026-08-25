@@ -19,6 +19,9 @@ fn request(shell: ShellKind, cwd: &str, before_cursor: &str) -> SuggestionReques
         before_cursor: before_cursor.into(),
         after_cursor: String::new(),
         max_results: 8,
+        terminal_rows: None,
+        terminal_columns: None,
+        presentation: dirgo::suggestions::SuggestionPresentation::Explicit,
     }
 }
 

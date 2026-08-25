@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,6 +11,14 @@ pub enum ShellKind {
     Bash,
     Fish,
     PowerShell,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionPresentation {
+    Inline,
+    List,
+    Explicit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +31,16 @@ pub struct SuggestionRequest {
     pub before_cursor: String,
     pub after_cursor: String,
     pub max_results: usize,
+    pub terminal_rows: Option<u16>,
+    pub terminal_columns: Option<u16>,
+    pub presentation: SuggestionPresentation,
+}
+
+pub fn visible_result_limit(terminal_rows: Option<u16>, configured: usize) -> usize {
+    let configured = configured.clamp(5, 12);
+    terminal_rows.map_or(configured, |rows| {
+        configured.min(usize::from(rows / 3).clamp(5, 12))
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

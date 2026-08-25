@@ -64,7 +64,10 @@ impl SuggestionEngine {
         candidates.extend(executable_suggestions(request, &self.data.catalog));
         candidates.extend(super::providers::filesystem_suggestions(request));
 
-        let mut top = TopSuggestions::new(request.max_results.min(20));
+        let mut top = TopSuggestions::new(super::visible_result_limit(
+            request.terminal_rows,
+            request.max_results,
+        ));
         for suggestion in candidates.into_iter().filter_map(sanitize_suggestion) {
             if suggestion.edit.replacement == request.before_cursor {
                 continue;

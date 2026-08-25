@@ -119,7 +119,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
         if (_worker is null || _ready is null || !_ready.IsCompleted) return null;
         try
         {
-            if (_ready.Result != "READY 1") {
+            if (_ready.Result != "READY 2") {
                 StopWorker();
                 return null;
             }
@@ -198,13 +198,16 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
 
     private sealed class SuggestionRequest
     {
-        [JsonPropertyName("protocol_version")] public ushort ProtocolVersion { get; init; } = 1;
+        [JsonPropertyName("protocol_version")] public ushort ProtocolVersion { get; init; } = 2;
         [JsonPropertyName("request_id")] public ulong RequestId { get; init; }
         [JsonPropertyName("shell")] public string Shell { get; init; } = "power_shell";
         [JsonPropertyName("cwd")] public string Cwd { get; init; } = "";
         [JsonPropertyName("before_cursor")] public string BeforeCursor { get; init; } = "";
         [JsonPropertyName("after_cursor")] public string AfterCursor { get; init; } = "";
         [JsonPropertyName("max_results")] public int MaxResults { get; init; } = 8;
+        [JsonPropertyName("terminal_rows")] public ushort? TerminalRows { get; init; }
+        [JsonPropertyName("terminal_columns")] public ushort? TerminalColumns { get; init; }
+        [JsonPropertyName("presentation")] public string Presentation { get; init; } = "list";
     }
 
     private sealed class SuggestionResponse

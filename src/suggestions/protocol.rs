@@ -13,6 +13,10 @@ pub enum ProtocolError {
     UnsupportedVersion { found: u16 },
     #[error("max_results must be between 1 and 20")]
     InvalidResultLimit,
+    #[error("terminal_rows must be between 15 and 4096 when present")]
+    InvalidTerminalRows,
+    #[error("terminal_columns must be between 20 and 4096 when present")]
+    InvalidTerminalColumns,
     #[error("suggestion protocol I/O failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -61,6 +65,18 @@ pub fn decode_request_line(input: &[u8]) -> Result<SuggestionRequest, ProtocolEr
     }
     if !(1..=20).contains(&request.max_results) {
         return Err(ProtocolError::InvalidResultLimit);
+    }
+    if request
+        .terminal_rows
+        .is_some_and(|rows| !(15..=4_096).contains(&rows))
+    {
+        return Err(ProtocolError::InvalidTerminalRows);
+    }
+    if request
+        .terminal_columns
+        .is_some_and(|columns| !(20..=4_096).contains(&columns))
+    {
+        return Err(ProtocolError::InvalidTerminalColumns);
     }
     Ok(request)
 }

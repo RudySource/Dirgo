@@ -442,9 +442,10 @@ fn hidden_suggest_worker(paths: &AppPaths, config: &Config, ready: bool) -> Resu
     let mut reader = stdin.lock();
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    let mut last_request_id = None;
     if ready {
         writer
-            .write_all(b"READY 1\n")
+            .write_all(format!("READY {}\n", crate::suggestions::PROTOCOL_VERSION).as_bytes())
             .and_then(|_| writer.flush())
             .map_err(|error| DirgoError::io("stdout", error))?;
     }
@@ -466,23 +467,29 @@ fn hidden_suggest_worker(paths: &AppPaths, config: &Config, ready: bool) -> Resu
         };
         let response = match decode_request_line(&frame) {
             Ok(request) => {
-                let next_stamp = suggestion_data_stamp(paths);
-                if next_stamp != data_stamp
-                    && let Ok(next_config) = Config::load(paths)
-                    && let Ok(next_engine) = build_indexed_suggestion_engine(paths, &next_config)
-                {
-                    active_config = next_config;
-                    engine = next_engine;
-                    data_stamp = next_stamp;
+                if last_request_id.is_some_and(|last| request.request_id <= last) {
+                    SuggestionResponse::error(request.request_id, "stale request id")
+                } else {
+                    last_request_id = Some(request.request_id);
+                    let next_stamp = suggestion_data_stamp(paths);
+                    if next_stamp != data_stamp
+                        && let Ok(next_config) = Config::load(paths)
+                        && let Ok(next_engine) =
+                            build_indexed_suggestion_engine(paths, &next_config)
+                    {
+                        active_config = next_config;
+                        engine = next_engine;
+                        data_stamp = next_stamp;
+                    }
+                    SuggestionResponse::success(
+                        request.request_id,
+                        if active_config.suggestions.enabled {
+                            engine.suggest(&request)
+                        } else {
+                            Vec::new()
+                        },
+                    )
                 }
-                SuggestionResponse::success(
-                    request.request_id,
-                    if active_config.suggestions.enabled {
-                        engine.suggest(&request)
-                    } else {
-                        Vec::new()
-                    },
-                )
             }
             Err(error) => SuggestionResponse::error(0, terminal::safe_text(&error.to_string())),
         };
@@ -654,6 +661,9 @@ fn shell_suggestion_request(
         before_cursor,
         after_cursor,
         max_results: config.suggestions.max_results,
+        terminal_rows: None,
+        terminal_columns: None,
+        presentation: crate::suggestions::SuggestionPresentation::Explicit,
     }
 }
 
