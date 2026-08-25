@@ -183,6 +183,37 @@ fn zsh_completion_stream_returns_nul_delimited_tokens_without_executing_them() {
 }
 
 #[test]
+fn fish_completion_stream_is_line_delimited_and_labeled_for_native_pager() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    fixture.command().arg("refresh").assert().success();
+    let cwd = fixture.temp.path().join("filesystem");
+    fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "fish",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--format",
+            "lines",
+        ])
+        .write_stdin(b"dgo sl\0\0".as_slice())
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Projects/Slash")
+                .and(predicate::str::contains("\tDIR  Slash\n")),
+        )
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
 fn worker_serves_multiple_frames_and_recording_requires_history_opt_in() {
     let fixture = Fixture::new();
     fixture

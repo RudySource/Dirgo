@@ -12,8 +12,9 @@ use crate::{
     DirgoError, Result,
     actions::Action,
     cli::{
-        BookmarkCommand, Cli, Command, ConfigCommand, ImportSource, QueryArgs, ResolveArgs,
-        SuggestionsCommand, SuggestionsHistoryCommand, UpdateNotificationMode,
+        BookmarkCommand, Cli, Command, CompletionOutputFormat, ConfigCommand, ImportSource,
+        QueryArgs, ResolveArgs, SuggestionsCommand, SuggestionsHistoryCommand,
+        UpdateNotificationMode,
     },
     config::Config,
     history_import,
@@ -258,6 +259,7 @@ pub fn run() -> Result<i32> {
         cwd,
         terminal_rows,
         terminal_columns,
+        format,
     }) = &cli.command
     {
         return hidden_suggest_complete(
@@ -267,6 +269,7 @@ pub fn run() -> Result<i32> {
             cwd,
             *terminal_rows,
             *terminal_columns,
+            *format,
         );
     }
     if let Some(Command::SuggestPick {
@@ -701,6 +704,7 @@ fn hidden_suggest_complete(
     cwd: &Path,
     terminal_rows: Option<u16>,
     terminal_columns: Option<u16>,
+    format: CompletionOutputFormat,
 ) -> Result<i32> {
     if !config.suggestions.enabled {
         return Ok(0);
@@ -723,16 +727,22 @@ fn hidden_suggest_complete(
             continue;
         };
         let label = suggestion_source_label(suggestion.source);
-        output
-            .write_all(token.as_bytes())
-            .and_then(|_| output.write_all(&[0]))
-            .and_then(|_| output.write_all(suggestion.display.as_bytes()))
-            .and_then(|_| output.write_all(&[0]))
-            .and_then(|_| output.write_all(label.as_bytes()))
-            .and_then(|_| output.write_all(&[0]))
-            .and_then(|_| output.write_all(suggestion.edit.replacement.as_bytes()))
-            .and_then(|_| output.write_all(&[0]))
-            .map_err(|error| DirgoError::io("stdout", error))?;
+        match format {
+            CompletionOutputFormat::Nul => output
+                .write_all(token.as_bytes())
+                .and_then(|_| output.write_all(&[0]))
+                .and_then(|_| output.write_all(suggestion.display.as_bytes()))
+                .and_then(|_| output.write_all(&[0]))
+                .and_then(|_| output.write_all(label.as_bytes()))
+                .and_then(|_| output.write_all(&[0]))
+                .and_then(|_| output.write_all(suggestion.edit.replacement.as_bytes()))
+                .and_then(|_| output.write_all(&[0]))
+                .map_err(|error| DirgoError::io("stdout", error))?,
+            CompletionOutputFormat::Lines => {
+                writeln!(output, "{token}\t{label}  {}", suggestion.display)
+                    .map_err(|error| DirgoError::io("stdout", error))?
+            }
+        }
     }
     output
         .flush()

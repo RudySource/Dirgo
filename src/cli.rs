@@ -285,6 +285,8 @@ pub enum Command {
         terminal_rows: Option<u16>,
         #[arg(long, value_parser = clap::value_parser!(u16).range(20..=4096))]
         terminal_columns: Option<u16>,
+        #[arg(long, value_enum, default_value_t = CompletionOutputFormat::Nul)]
+        format: CompletionOutputFormat,
     },
     #[command(name = "__suggest-pick", hide = true)]
     SuggestPick {
@@ -305,6 +307,12 @@ pub enum Command {
 pub enum UpdateNotificationMode {
     On,
     Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CompletionOutputFormat {
+    Nul,
+    Lines,
 }
 
 #[derive(Debug, Subcommand)]

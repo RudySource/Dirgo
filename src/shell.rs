@@ -387,6 +387,7 @@ dgo() {
 }
 
 if command dgo __suggest-enabled >/dev/null 2>&1 && (( BASH_VERSINFO[0] >= 4 )); then
+  source <(command dgo completions bash)
   _dgo_accept_suggestion() {
     local before after suggestion
     before="${READLINE_LINE:0:READLINE_POINT}"
@@ -483,6 +484,7 @@ function dgo --description 'Go anywhere. Instantly.'
 end
 
 if command dgo __suggest-enabled >/dev/null 2>&1
+    command dgo completions fish | source
     function __dgo_accept_suggestion --description 'Insert a Dirgo suggestion'
         set -l buffer (commandline -b)
         set -l cursor (commandline -C)
@@ -746,25 +748,54 @@ _dgo() {
 compdef _dgo dgo
 "#;
 
-const BASH_COMPLETIONS: &str = r#"_dgo_bookmarks() {
+const BASH_COMPLETIONS: &str = r#"if [[ -z ${_DGO_PREVIOUS_COMPLETE_FUNCTION+x} ]]; then
+  _DGO_PREVIOUS_COMPLETE_FUNCTION=''
+  if [[ "$(complete -p dgo 2>/dev/null)" =~ -F[[:space:]]+([^[:space:]]+) ]]; then
+    _DGO_PREVIOUS_COMPLETE_FUNCTION="${BASH_REMATCH[1]}"
+  fi
+fi
+
+_dgo_bookmarks() {
   command dgo bookmarks 2>/dev/null | sed -n 's/^@\([^ ]*\).*/\1/p'
 }
 _dgo_complete() {
-  local cur prev commands options
+  local cur prev commands options candidate description
+  local -a previous_replies=()
+  if [[ -n "$_DGO_PREVIOUS_COMPLETE_FUNCTION" &&
+        "$_DGO_PREVIOUS_COMPLETE_FUNCTION" != _dgo_complete &&
+        $(type -t "$_DGO_PREVIOUS_COMPLETE_FUNCTION") == function ]]; then
+    "$_DGO_PREVIOUS_COMPLETE_FUNCTION"
+    previous_replies=("${COMPREPLY[@]}")
+  fi
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   commands='setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
   options='--update --open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
   case "$prev" in
-    init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish powershell' -- "$cur") ); return ;;
-    suggestions) COMPREPLY=( $(compgen -W 'enable disable status doctor history' -- "$cur") ); return ;;
-    import) COMPREPLY=( $(compgen -W 'zoxide' -- "$cur") ); return ;;
-    config) COMPREPLY=( $(compgen -W 'path show' -- "$cur") ); return ;;
-    update-notifications) COMPREPLY=( $(compgen -W 'on off' -- "$cur") ); return ;;
-    bookmark) COMPREPLY=( $(compgen -W 'add remove rename' -- "$cur") ); return ;;
-    remove|rename|--forget) COMPREPLY=( $(compgen -W "$(_dgo_bookmarks)" -- "$cur") ); return ;;
+    init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish powershell' -- "$cur") ) ;;
+    suggestions) COMPREPLY=( $(compgen -W 'enable disable status doctor history' -- "$cur") ) ;;
+    import) COMPREPLY=( $(compgen -W 'zoxide' -- "$cur") ) ;;
+    config) COMPREPLY=( $(compgen -W 'path show' -- "$cur") ) ;;
+    update-notifications) COMPREPLY=( $(compgen -W 'on off' -- "$cur") ) ;;
+    bookmark) COMPREPLY=( $(compgen -W 'add remove rename' -- "$cur") ) ;;
+    remove|rename|--forget) COMPREPLY=( $(compgen -W "$(_dgo_bookmarks)" -- "$cur") ) ;;
+    *) COMPREPLY=( $(compgen -W "$commands $options" -- "$cur") ) ;;
   esac
-  COMPREPLY=( $(compgen -W "$commands $options" -- "$cur") )
+  COMPREPLY=("${previous_replies[@]}" "${COMPREPLY[@]}")
+  while IFS=$'\t' read -r candidate description; do
+    [[ -n "$candidate" ]] && COMPREPLY+=("$candidate")
+  done < <(printf '%s\0%s\0' "${COMP_LINE:0:COMP_POINT}" "${COMP_LINE:COMP_POINT}" |
+    command dgo __suggest-complete --shell bash --cwd "$PWD" --format lines \
+      --terminal-rows "${LINES:-24}" --terminal-columns "${COLUMNS:-80}" 2>/dev/null)
+
+  local -A seen=()
+  local -a unique=()
+  for candidate in "${COMPREPLY[@]}"; do
+    [[ -n "$candidate" && -z ${seen["$candidate"]+x} ]] || continue
+    seen["$candidate"]=1
+    unique+=("$candidate")
+  done
+  COMPREPLY=("${unique[@]}")
 }
 complete -F _dgo_complete dgo
 "#;
@@ -772,7 +803,12 @@ complete -F _dgo_complete dgo
 const FISH_COMPLETIONS: &str = r#"function __dgo_bookmarks
     command dgo bookmarks 2>/dev/null | string replace -r '^@([^ ]+).*' '$1'
 end
-complete -c dgo -f
+function __dgo_live_candidates
+    set -l buffer (commandline -cp)
+    printf '%s\0\0' "$buffer" | command dgo __suggest-complete --shell fish --cwd "$PWD" \
+        --format lines --terminal-rows "$LINES" --terminal-columns "$COLUMNS" 2>/dev/null
+end
+complete -c dgo -a '(__dgo_live_candidates)'
 complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
 complete -c dgo -l update -d 'Install the latest Dirgo release'
 complete -c dgo -l open -d 'Open with the OS'
@@ -866,5 +902,24 @@ mod tests {
         assert!(script.contains("function _dgo_live_dismiss()"));
         assert!(!script.contains("bindkey 'a'"));
         assert!(!script.contains("bindkey ' '"));
+    }
+
+    #[test]
+    fn fish_and_bash_enrich_native_completion_without_replacing_editor_behavior() {
+        let fish = completions(Shell::Fish);
+        assert!(fish.contains("function __dgo_live_candidates"));
+        assert!(fish.contains("__suggest-complete --shell fish"));
+        assert!(!fish.contains("set fish_autosuggestion_enabled"));
+        assert!(!fish.contains("complete -c dgo -f"));
+
+        let bash = completions(Shell::Bash);
+        assert!(bash.contains("_DGO_PREVIOUS_COMPLETE_FUNCTION"));
+        assert!(bash.contains("__suggest-complete --shell bash"));
+        assert!(bash.contains("complete -F _dgo_complete dgo"));
+        assert!(!bash.contains("bind -x 'a"));
+        assert!(!bash.contains("bind -x ' "));
+
+        assert!(integration(Shell::Fish).contains("command dgo completions fish | source"));
+        assert!(integration(Shell::Bash).contains("source <(command dgo completions bash)"));
     }
 }
