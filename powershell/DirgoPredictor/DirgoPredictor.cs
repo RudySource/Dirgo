@@ -51,7 +51,11 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
                 Cwd = Environment.GetEnvironmentVariable("DGO_PREDICTOR_CWD")
                     ?? Environment.CurrentDirectory,
                 BeforeCursor = input,
+                MaxResults = 12,
+                TerminalRows = GetTerminalRows(),
+                TerminalColumns = GetTerminalColumns(),
             };
+            if (cancellationToken.IsCancellationRequested) return default;
             worker.StandardInput.WriteLine(JsonSerializer.Serialize(request));
             worker.StandardInput.Flush();
 
@@ -66,6 +70,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
                 StopWorker();
                 return default;
             }
+            if (cancellationToken.IsCancellationRequested) return default;
             var response = JsonSerializer.Deserialize<SuggestionResponse>(line);
             if (response is null || response.RequestId != requestId || response.Error is not null)
                 return default;
@@ -74,7 +79,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
                 .Where(item => item.Edit.ExpectedBefore == input && item.Edit.Replacement != input)
                 .Select(item => new PredictiveSuggestion(
                     item.Edit.Replacement,
-                    item.Description ?? item.Source.ToUpperInvariant()))
+                    FormatTooltip(item)))
                 .ToList();
             return suggestions.Count == 0 ? default : new SuggestionPackage(suggestions);
         }
@@ -110,6 +115,48 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
     public void Dispose()
     {
         lock (_gate) StopWorker();
+    }
+
+    private static string FormatTooltip(Suggestion suggestion)
+    {
+        var label = suggestion.Source switch
+        {
+            "command" => "CMD",
+            "subcommand" => "SUB",
+            "option" => "OPT",
+            "directory" => "DIR",
+            "filesystem" => "FILE",
+            "command_history" => "HIST",
+            "navigation_history" => "NAV",
+            "builtin" => "BLT",
+            "alias" => "ALS",
+            "executable" => "PATH",
+            _ => "DGO",
+        };
+        var detail = string.IsNullOrWhiteSpace(suggestion.Description) ||
+            string.Equals(suggestion.Description, label, StringComparison.OrdinalIgnoreCase)
+            ? suggestion.Display
+            : suggestion.Description;
+        return string.IsNullOrWhiteSpace(detail) ? label : $"{label}  {detail}";
+    }
+
+    private static ushort? GetTerminalRows() =>
+        GetTerminalDimension(() => Console.WindowHeight, 15);
+
+    private static ushort? GetTerminalColumns() =>
+        GetTerminalDimension(() => Console.WindowWidth, 20);
+
+    private static ushort? GetTerminalDimension(Func<int> read, int minimum)
+    {
+        try
+        {
+            var value = read();
+            return value is >= 0 and <= 4096 && value >= minimum ? (ushort)value : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private Process? EnsureWorker()
@@ -204,7 +251,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
         [JsonPropertyName("cwd")] public string Cwd { get; init; } = "";
         [JsonPropertyName("before_cursor")] public string BeforeCursor { get; init; } = "";
         [JsonPropertyName("after_cursor")] public string AfterCursor { get; init; } = "";
-        [JsonPropertyName("max_results")] public int MaxResults { get; init; } = 8;
+        [JsonPropertyName("max_results")] public int MaxResults { get; init; } = 12;
         [JsonPropertyName("terminal_rows")] public ushort? TerminalRows { get; init; }
         [JsonPropertyName("terminal_columns")] public ushort? TerminalColumns { get; init; }
         [JsonPropertyName("presentation")] public string Presentation { get; init; } = "list";
@@ -220,6 +267,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
     private sealed class Suggestion
     {
         [JsonPropertyName("edit")] public TextEdit Edit { get; init; } = new();
+        [JsonPropertyName("display")] public string Display { get; init; } = "";
         [JsonPropertyName("description")] public string? Description { get; init; }
         [JsonPropertyName("source")] public string Source { get; init; } = "DIR";
     }

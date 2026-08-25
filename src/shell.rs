@@ -652,6 +652,7 @@ if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
             $Host.UI.SupportsVirtualTerminal) {
             $dirgoPredictorRegistered = $true
             Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+            Set-PSReadLineOption -PredictionViewStyle ListView
         }
     }
 
@@ -834,6 +835,7 @@ mod tests {
         assert!(script.contains("Select-Object -First 1"));
         assert!(script.contains("SubsystemManager]::GetSubsystemInfo"));
         assert!(script.contains("Set-PSReadLineOption -PredictionSource HistoryAndPlugin"));
+        assert!(script.contains("Set-PSReadLineOption -PredictionViewStyle ListView"));
         assert!(script.contains("Set-PSReadLineKeyHandler -Chord Ctrl+f"));
         assert!(!script.contains("AcceptLine"));
     }
