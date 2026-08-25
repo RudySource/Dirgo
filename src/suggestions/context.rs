@@ -3,6 +3,7 @@ use super::ShellKind;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionContext {
     command: Option<String>,
+    completed_tokens: Vec<String>,
     current_token: String,
     replacement_start: usize,
 }
@@ -60,6 +61,15 @@ impl CompletionContext {
         }
 
         let command = tokens.first().map(|(value, _)| value.clone());
+        let completed_tokens = if ended_with_whitespace {
+            tokens.iter().map(|(value, _)| value.clone()).collect()
+        } else {
+            tokens
+                .iter()
+                .take(tokens.len().saturating_sub(1))
+                .map(|(value, _)| value.clone())
+                .collect()
+        };
         let (current_token, replacement_start) = if ended_with_whitespace {
             (String::new(), before_cursor.len())
         } else {
@@ -70,6 +80,7 @@ impl CompletionContext {
         };
         Self {
             command,
+            completed_tokens,
             current_token,
             replacement_start,
         }
@@ -81,6 +92,10 @@ impl CompletionContext {
 
     pub fn current_token(&self) -> &str {
         &self.current_token
+    }
+
+    pub fn completed_tokens(&self) -> &[String] {
+        &self.completed_tokens
     }
 
     pub fn replacement_start(&self) -> usize {

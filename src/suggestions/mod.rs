@@ -1,3 +1,4 @@
+mod catalog;
 mod context;
 mod engine;
 mod picker;
@@ -10,13 +11,14 @@ mod store;
 mod top_k;
 mod types;
 
+pub use catalog::{CommandCatalog, CommandOption, CommandSpec, portable_command_name};
 pub use context::CompletionContext;
 pub use engine::{SuggestionData, SuggestionEngine};
 pub use picker::{PickerOptions, pick_suggestion};
 pub use protocol::{
     MAX_REQUEST_BYTES, ProtocolError, decode_request_line, encode_response_line, read_bounded_frame,
 };
-pub use providers::{CommandHistoryEntry, discover_executables};
+pub use providers::CommandHistoryEntry;
 pub use sanitize::sanitize_suggestion;
 pub use settings::write_suggestions_config;
 pub use store::{CommandHistoryStore, read_command_history};

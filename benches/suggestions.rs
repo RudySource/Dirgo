@@ -4,7 +4,8 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dirgo::{
     model::DirectoryRecord,
     suggestions::{
-        PROTOCOL_VERSION, ShellKind, SuggestionData, SuggestionEngine, SuggestionRequest,
+        CommandCatalog, PROTOCOL_VERSION, ShellKind, SuggestionData, SuggestionEngine,
+        SuggestionRequest,
     },
 };
 
@@ -31,6 +32,7 @@ fn suggestions(c: &mut Criterion) {
     let records = (0..100_000).map(record).collect();
     let engine = SuggestionEngine::new_indexed(SuggestionData {
         records,
+        catalog: CommandCatalog::default(),
         ..SuggestionData::default()
     });
     let request = SuggestionRequest {

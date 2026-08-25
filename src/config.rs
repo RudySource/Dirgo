@@ -48,6 +48,10 @@ pub struct ActionConfig {
 pub struct SuggestionsConfig {
     pub enabled: bool,
     pub command_history: bool,
+    pub live_panel: bool,
+    pub native_completions: bool,
+    pub debounce_ms: u64,
+    pub native_timeout_ms: u64,
     pub max_results: usize,
     pub retention_entries: usize,
     pub retention_days: u64,
@@ -106,6 +110,10 @@ impl Default for SuggestionsConfig {
         Self {
             enabled: false,
             command_history: false,
+            live_panel: true,
+            native_completions: true,
+            debounce_ms: 30,
+            native_timeout_ms: 80,
             max_results: 8,
             retention_entries: 10_000,
             retention_days: 180,
@@ -152,6 +160,16 @@ impl Config {
         if !(1..=20).contains(&self.suggestions.max_results) {
             return Err(DirgoError::Config(
                 "suggestions.max_results must be between 1 and 20".into(),
+            ));
+        }
+        if self.suggestions.debounce_ms > 250 {
+            return Err(DirgoError::Config(
+                "suggestions.debounce_ms must be between 0 and 250".into(),
+            ));
+        }
+        if !(10..=500).contains(&self.suggestions.native_timeout_ms) {
+            return Err(DirgoError::Config(
+                "suggestions.native_timeout_ms must be between 10 and 500".into(),
             ));
         }
         if !(1..=50_000).contains(&self.suggestions.retention_entries) {
@@ -244,6 +262,10 @@ mod tests {
         assert!(!config.suggestions.enabled);
         assert!(!config.suggestions.command_history);
         assert_eq!(config.suggestions.max_results, 8);
+        assert!(config.suggestions.live_panel);
+        assert!(config.suggestions.native_completions);
+        assert_eq!(config.suggestions.debounce_ms, 30);
+        assert_eq!(config.suggestions.native_timeout_ms, 80);
 
         let parsed: Config = toml::from_str("schema_version = 1\nroots = ['/tmp']\n")
             .expect("legacy config remains readable");
@@ -258,6 +280,17 @@ mod tests {
         assert!(config.validate().is_err());
 
         config.suggestions.max_results = 8;
+        config.suggestions.debounce_ms = 251;
+        assert!(config.validate().is_err());
+
+        config.suggestions.debounce_ms = 30;
+        config.suggestions.native_timeout_ms = 9;
+        assert!(config.validate().is_err());
+
+        config.suggestions.native_timeout_ms = 501;
+        assert!(config.validate().is_err());
+
+        config.suggestions.native_timeout_ms = 80;
         config.suggestions.retention_entries = 0;
         assert!(config.validate().is_err());
     }

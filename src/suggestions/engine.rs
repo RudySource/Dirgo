@@ -6,10 +6,10 @@ use crate::{
 };
 
 use super::{
-    Suggestion, SuggestionRequest, TopSuggestions,
+    CommandCatalog, CompletionContext, Suggestion, SuggestionRequest, TopSuggestions,
     providers::{
-        CommandHistoryEntry, directory_query, directory_suggestions, executable_suggestions,
-        history_suggestions,
+        CommandHistoryEntry, command_suggestions, directory_query, directory_suggestions,
+        executable_suggestions, history_suggestions,
     },
     sanitize_suggestion,
 };
@@ -20,7 +20,7 @@ pub struct SuggestionData {
     pub bookmarks: HashMap<String, Bookmark>,
     pub navigation_history: HashMap<std::path::PathBuf, PathHistory>,
     pub ranking: RankingConfig,
-    pub executables: Vec<String>,
+    pub catalog: CommandCatalog,
     pub command_history: Vec<CommandHistoryEntry>,
 }
 
@@ -57,12 +57,12 @@ impl SuggestionEngine {
 
     pub fn suggest(&self, request: &SuggestionRequest) -> Vec<Suggestion> {
         let records = self.prefix_records(request);
+        let context = CompletionContext::parse(request.shell, &request.before_cursor);
         let mut candidates = directory_suggestions(request, &self.data, &records);
-        if candidates.is_empty() {
-            candidates.extend(history_suggestions(request, &self.data.command_history));
-            candidates.extend(executable_suggestions(request, &self.data.executables));
-            candidates.extend(super::providers::filesystem_suggestions(request));
-        }
+        candidates.extend(command_suggestions(request, &context, &self.data.catalog));
+        candidates.extend(history_suggestions(request, &self.data.command_history));
+        candidates.extend(executable_suggestions(request, &self.data.catalog));
+        candidates.extend(super::providers::filesystem_suggestions(request));
 
         let mut top = TopSuggestions::new(request.max_results.min(20));
         for suggestion in candidates.into_iter().filter_map(sanitize_suggestion) {

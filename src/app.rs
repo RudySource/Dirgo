@@ -24,9 +24,9 @@ use crate::{
     shell,
     state::{StateStore, read_suggestion_context},
     suggestions::{
-        CommandHistoryStore, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
-        SuggestionResponse, decode_request_line, discover_executables, encode_response_line,
-        pick_suggestion, read_bounded_frame, read_command_history, write_suggestions_config,
+        CommandCatalog, CommandHistoryStore, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
+        SuggestionResponse, decode_request_line, encode_response_line, pick_suggestion,
+        read_bounded_frame, read_command_history, write_suggestions_config,
     },
     terminal,
 };
@@ -713,10 +713,10 @@ fn load_suggestion_data(
         bookmarks,
         navigation_history,
         ranking: config.ranking.clone(),
-        executables: if include_executables {
-            discover_executables(env::var_os("PATH").as_deref())
+        catalog: if include_executables {
+            CommandCatalog::discover(env::var_os("PATH").as_deref())
         } else {
-            Vec::new()
+            CommandCatalog::default()
         },
         command_history,
     })

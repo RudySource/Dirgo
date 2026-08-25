@@ -1,14 +1,12 @@
 use std::{collections::HashMap, path::PathBuf};
 
-#[cfg(unix)]
-use dirgo::suggestions::discover_executables;
 use dirgo::{
     config::RankingConfig,
     model::{DirectoryRecord, PathHistory},
     suggestions::{
-        CommandHistoryEntry, CompletionContext, PROTOCOL_VERSION, ShellKind, Suggestion,
-        SuggestionData, SuggestionEngine, SuggestionRequest, SuggestionSource, TextEdit,
-        TopSuggestions,
+        CommandCatalog, CommandHistoryEntry, CompletionContext, PROTOCOL_VERSION, ShellKind,
+        Suggestion, SuggestionData, SuggestionEngine, SuggestionRequest, SuggestionSource,
+        TextEdit, TopSuggestions,
     },
 };
 
@@ -97,7 +95,7 @@ fn powershell_directory_edits_use_literal_single_quoted_paths() {
 #[test]
 fn command_history_is_prefix_ranked_deduplicated_and_sanitized() {
     let data = SuggestionData {
-        executables: vec!["git".into(), "gitu".into()],
+        catalog: CommandCatalog::from_executable_names(["git".into(), "gitu".into()]),
         command_history: vec![
             CommandHistoryEntry::new("git status", 5, 100),
             CommandHistoryEntry::new("git status", 2, 90),
@@ -192,8 +190,10 @@ fn executable_discovery_is_bounded_unique_and_requires_execute_permission() {
     let path = std::env::join_paths([&first, &second]).expect("PATH");
 
     assert_eq!(
-        discover_executables(Some(path.as_os_str())),
-        vec!["dgo-other".to_string(), "dgo-tool".to_string()]
+        CommandCatalog::discover(Some(path.as_os_str()))
+            .executable_names()
+            .collect::<Vec<_>>(),
+        vec!["dgo-other", "dgo-tool"]
     );
 }
 
@@ -230,7 +230,7 @@ fn bounded_top_k_keeps_only_best_unique_replacements_in_deterministic_order() {
         },
         display: replacement.into(),
         description: None,
-        source: SuggestionSource::Executable,
+        source: SuggestionSource::Command,
         score,
     };
     let mut top = TopSuggestions::new(3);
@@ -249,4 +249,69 @@ fn bounded_top_k_keeps_only_best_unique_replacements_in_deterministic_order() {
         vec!["docker", "dgo", "delta"]
     );
     assert_eq!(results[0].id, "docker-high");
+}
+
+#[test]
+fn dirgo_catalog_completes_public_subcommands_and_options() {
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    let subcommands = engine.suggest(&request(ShellKind::Zsh, "/work", "dgo sug"));
+    assert_eq!(subcommands[0].edit.replacement, "dgo suggestions");
+    assert_eq!(subcommands[0].source, SuggestionSource::Subcommand);
+    assert!(
+        subcommands[0]
+            .description
+            .as_deref()
+            .is_some_and(|value| value.contains("shell-native"))
+    );
+
+    let options = engine.suggest(&request(ShellKind::PowerShell, "/work", "dgo --upd"));
+    assert_eq!(options[0].edit.replacement, "dgo --update");
+    assert_eq!(options[0].source, SuggestionSource::Option);
+}
+
+#[test]
+fn dgo_partial_query_still_prioritizes_matching_directories() {
+    let data = SuggestionData {
+        records: vec![record("/work/Slash")],
+        ..SuggestionData::default()
+    };
+
+    let suggestions =
+        SuggestionEngine::new(data).suggest(&request(ShellKind::Zsh, "/work", "dgo sl"));
+    assert_eq!(suggestions[0].edit.replacement, "dgo /work/Slash");
+    assert_eq!(suggestions[0].source, SuggestionSource::Directory);
+}
+
+#[test]
+fn dirgo_catalog_follows_nested_subcommands_and_never_exposes_internal_commands() {
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    let nested = engine.suggest(&request(ShellKind::Fish, "/work", "dgo suggestions hi"));
+    assert_eq!(nested[0].edit.replacement, "dgo suggestions history");
+    assert_eq!(nested[0].source, SuggestionSource::Subcommand);
+
+    let hidden = engine.suggest(&request(ShellKind::Bash, "/work", "dgo __s"));
+    assert!(hidden.iter().all(|item| !item.display.starts_with("__")));
+}
+
+#[test]
+fn path_and_history_candidates_are_merged_instead_of_suppressing_each_other() {
+    let data = SuggestionData {
+        catalog: CommandCatalog::from_executable_names(["git".into(), "gitsome".into()]),
+        command_history: vec![CommandHistoryEntry::new("git status", 4, 10)],
+        ..SuggestionData::default()
+    };
+
+    let suggestions = SuggestionEngine::new(data).suggest(&request(ShellKind::Zsh, "/work", "git"));
+    assert!(
+        suggestions
+            .iter()
+            .any(|item| item.source == SuggestionSource::Command)
+    );
+    assert!(
+        suggestions
+            .iter()
+            .any(|item| item.source == SuggestionSource::CommandHistory)
+    );
 }

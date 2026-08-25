@@ -183,6 +183,11 @@ fn source_label(source: SuggestionSource) -> &'static str {
         SuggestionSource::NavigationHistory => "NAV",
         SuggestionSource::CommandHistory => "HIST",
         SuggestionSource::Executable => "PATH",
+        SuggestionSource::Command => "CMD",
+        SuggestionSource::Subcommand => "SUB",
+        SuggestionSource::Option => "OPT",
+        SuggestionSource::Builtin => "BLT",
+        SuggestionSource::Alias => "ALS",
         SuggestionSource::Filesystem => "FILE",
     }
 }
@@ -235,6 +240,9 @@ mod tests {
         );
         assert_eq!(source_label(SuggestionSource::CommandHistory), "HIST");
         assert_eq!(source_label(SuggestionSource::Filesystem), "FILE");
+        assert_eq!(source_label(SuggestionSource::Command), "CMD");
+        assert_eq!(source_label(SuggestionSource::Subcommand), "SUB");
+        assert_eq!(source_label(SuggestionSource::Option), "OPT");
         assert_eq!(centered(Rect::new(0, 0, 3, 2)), Rect::new(0, 0, 3, 2));
         assert_eq!(ASCII_BORDER.top_left, "+");
         assert_eq!(ASCII_BORDER.vertical_left, "|");

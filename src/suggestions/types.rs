@@ -39,6 +39,11 @@ pub enum SuggestionSource {
     NavigationHistory,
     CommandHistory,
     Executable,
+    Command,
+    Subcommand,
+    Option,
+    Builtin,
+    Alias,
     Filesystem,
 }
 
