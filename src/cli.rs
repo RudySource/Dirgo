@@ -264,6 +264,8 @@ pub enum Command {
     SuggestRecord,
     #[command(name = "__suggest-enabled", hide = true)]
     SuggestEnabled,
+    #[command(name = "__suggest-live-enabled", hide = true)]
+    SuggestLiveEnabled,
     #[command(name = "__suggest-history-enabled", hide = true)]
     SuggestHistoryEnabled,
     #[command(name = "__suggest-shell", hide = true)]
@@ -272,6 +274,17 @@ pub enum Command {
         shell: Shell,
         #[arg(long)]
         cwd: PathBuf,
+    },
+    #[command(name = "__suggest-complete", hide = true)]
+    SuggestComplete {
+        #[arg(long, value_enum)]
+        shell: Shell,
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long, value_parser = clap::value_parser!(u16).range(15..=4096))]
+        terminal_rows: Option<u16>,
+        #[arg(long, value_parser = clap::value_parser!(u16).range(20..=4096))]
+        terminal_columns: Option<u16>,
     },
     #[command(name = "__suggest-pick", hide = true)]
     SuggestPick {

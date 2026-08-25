@@ -106,6 +106,195 @@ function dgo() {
 }
 
 if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
+  autoload -Uz add-zle-hook-widget compinit 2>/dev/null
+  (( $+functions[compdef] )) || compinit -C
+  if (( ! $+functions[_dgo] )); then
+    source <(command dgo completions zsh)
+  fi
+
+  typeset -g _DGO_LIVE_GENERATION=0
+  typeset -g _DGO_LIVE_FD=-1
+  typeset -g _DGO_LIVE_SNAPSHOT=''
+  typeset -g _DGO_LIVE_LAST_BUFFER=''
+  typeset -g _DGO_LIVE_LAST_LINES=0
+  typeset -g _DGO_LIVE_LAST_COLUMNS=0
+  typeset -g _DGO_LIVE_GUARD=0
+  typeset -g _DGO_LIVE_SELECTED=1
+  typeset -g _DGO_LIVE_BASE_KEYMAP=''
+  typeset -g _DGO_LIVE_TAB_WIDGET=''
+  typeset -g _DGO_LIVE_UP_WIDGET=''
+  typeset -g _DGO_LIVE_DOWN_WIDGET=''
+  typeset -g _DGO_LIVE_ESC_WIDGET=''
+  typeset -ga _DGO_LIVE_VALUES=()
+  typeset -ga _DGO_LIVE_DISPLAYS=()
+  typeset -ga _DGO_LIVE_LABELS=()
+  typeset -ga _DGO_LIVE_REPLACEMENTS=()
+
+  function _dgo_live_cancel_timer() {
+    if (( _DGO_LIVE_FD >= 0 )); then
+      zle -F "$_DGO_LIVE_FD" 2>/dev/null
+      exec {_DGO_LIVE_FD}<&-
+      _DGO_LIVE_FD=-1
+    fi
+  }
+
+  function _dgo_live_ready() {
+    local fd="$1" generation='' value display label replacement
+    zle -F "$fd" 2>/dev/null
+    IFS= read -r -d $'\0' generation <&$fd
+    _DGO_LIVE_VALUES=()
+    _DGO_LIVE_DISPLAYS=()
+    _DGO_LIVE_LABELS=()
+    _DGO_LIVE_REPLACEMENTS=()
+    while IFS= read -r -d $'\0' value <&$fd &&
+          IFS= read -r -d $'\0' display <&$fd &&
+          IFS= read -r -d $'\0' label <&$fd &&
+          IFS= read -r -d $'\0' replacement <&$fd; do
+      _DGO_LIVE_VALUES+=("$value")
+      _DGO_LIVE_DISPLAYS+=("$display")
+      _DGO_LIVE_LABELS+=("$label")
+      _DGO_LIVE_REPLACEMENTS+=("$replacement")
+    done
+    exec {fd}<&-
+    [[ "$fd" == "$_DGO_LIVE_FD" ]] && _DGO_LIVE_FD=-1
+    (( generation == _DGO_LIVE_GENERATION )) || return
+    [[ "$BUFFER" == "$_DGO_LIVE_SNAPSHOT" ]] || return
+    [[ -n "${BUFFER//[[:space:]]/}" ]] || return
+    if (( ${#_DGO_LIVE_VALUES} == 0 )); then
+      _dgo_live_dismiss
+      return
+    fi
+    _DGO_LIVE_LAST_BUFFER="$BUFFER"
+    _DGO_LIVE_LAST_LINES=$LINES
+    _DGO_LIVE_LAST_COLUMNS=$COLUMNS
+    _DGO_LIVE_SELECTED=1
+    _DGO_LIVE_GUARD=1
+    if [[ -z "$_DGO_LIVE_BASE_KEYMAP" ]]; then
+      _DGO_LIVE_BASE_KEYMAP="$KEYMAP"
+      _dgo_live_install_keys
+    fi
+    _dgo_live_render
+    _DGO_LIVE_GUARD=0
+  }
+
+  function _dgo_live_render() {
+    local panel='Dirgo suggestions' index marker
+    for (( index = 1; index <= ${#_DGO_LIVE_VALUES}; index++ )); do
+      marker=' '
+      (( index == _DGO_LIVE_SELECTED )) && marker='›'
+      panel+=$'\n'"$marker  ${_DGO_LIVE_LABELS[index]}  ${_DGO_LIVE_DISPLAYS[index]}"
+    done
+    panel+=$'\n'"↑↓ select   Tab insert   Esc dismiss"
+    zle -M "$panel"
+  }
+
+  function _dgo_live_install_keys() {
+    local -a binding
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^I' 2>/dev/null)"})
+    _DGO_LIVE_TAB_WIDGET="${binding[-1]:-}"
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[A' 2>/dev/null)"})
+    _DGO_LIVE_UP_WIDGET="${binding[-1]:-}"
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[B' 2>/dev/null)"})
+    _DGO_LIVE_DOWN_WIDGET="${binding[-1]:-}"
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' 2>/dev/null)"})
+    _DGO_LIVE_ESC_WIDGET="${binding[-1]:-}"
+    [[ -n "$_DGO_LIVE_TAB_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^I' _dgo_live_accept
+    [[ -n "$_DGO_LIVE_UP_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[A' _dgo_live_up
+    [[ -n "$_DGO_LIVE_DOWN_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[B' _dgo_live_down
+    [[ -n "$_DGO_LIVE_ESC_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' _dgo_live_dismiss
+  }
+
+  function _dgo_live_restore_keys() {
+    [[ -z "$_DGO_LIVE_BASE_KEYMAP" ]] && return
+    [[ -n "$_DGO_LIVE_TAB_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^I' "$_DGO_LIVE_TAB_WIDGET"
+    [[ -n "$_DGO_LIVE_UP_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[A' "$_DGO_LIVE_UP_WIDGET"
+    [[ -n "$_DGO_LIVE_DOWN_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[B' "$_DGO_LIVE_DOWN_WIDGET"
+    [[ -n "$_DGO_LIVE_ESC_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' "$_DGO_LIVE_ESC_WIDGET"
+    _DGO_LIVE_TAB_WIDGET=''
+    _DGO_LIVE_UP_WIDGET=''
+    _DGO_LIVE_DOWN_WIDGET=''
+    _DGO_LIVE_ESC_WIDGET=''
+  }
+
+  function _dgo_live_pre_redraw() {
+    (( _DGO_LIVE_GUARD )) && return
+    if [[ "$KEYMAP" == isearch || "$KEYMAP" == vicmd ]]; then
+      _dgo_live_dismiss
+      return
+    fi
+    if [[ -z "${BUFFER//[[:space:]]/}" ]]; then
+      _dgo_live_cancel_timer
+      _DGO_LIVE_LAST_BUFFER=''
+      zle -R -c
+      return
+    fi
+    if [[ "$BUFFER" == "$_DGO_LIVE_LAST_BUFFER" &&
+          $LINES == $_DGO_LIVE_LAST_LINES &&
+          $COLUMNS == $_DGO_LIVE_LAST_COLUMNS ]]; then
+      return
+    fi
+    if (( _DGO_LIVE_FD >= 0 )) && [[ "$BUFFER" == "$_DGO_LIVE_SNAPSHOT" ]]; then
+      return
+    fi
+    _dgo_live_cancel_timer
+    (( _DGO_LIVE_GENERATION++ ))
+    _DGO_LIVE_SNAPSHOT="$BUFFER"
+    local generation=$_DGO_LIVE_GENERATION
+    local snapshot="$_DGO_LIVE_SNAPSHOT" after="$RBUFFER" cwd="$PWD" rows=$LINES columns=$COLUMNS
+    exec {_DGO_LIVE_FD}< <(
+      sleep 0.03
+      print -rn -- "$generation"$'\0'
+      printf '%s\0%s\0' "$snapshot" "$after" |
+        command dgo __suggest-complete --shell zsh --cwd "$cwd" \
+          --terminal-rows "$rows" --terminal-columns "$columns" 2>/dev/null
+    )
+    zle -F -w "$_DGO_LIVE_FD" _dgo_live_ready
+  }
+
+  function _dgo_live_accept() {
+    local replacement="${_DGO_LIVE_REPLACEMENTS[_DGO_LIVE_SELECTED]:-}"
+    _dgo_live_cancel_timer
+    if [[ -n "$replacement" ]]; then
+      LBUFFER="$replacement"
+    fi
+    _dgo_live_dismiss
+  }
+
+  function _dgo_live_dismiss() {
+    _dgo_live_cancel_timer
+    _DGO_LIVE_LAST_BUFFER="$BUFFER"
+    _DGO_LIVE_LAST_LINES=$LINES
+    _DGO_LIVE_LAST_COLUMNS=$COLUMNS
+    _dgo_live_restore_keys
+    _DGO_LIVE_BASE_KEYMAP=''
+    _DGO_LIVE_VALUES=()
+    _DGO_LIVE_DISPLAYS=()
+    _DGO_LIVE_LABELS=()
+    _DGO_LIVE_REPLACEMENTS=()
+    zle -M ''
+    zle -R -c
+  }
+
+  function _dgo_live_up() {
+    (( _DGO_LIVE_SELECTED > 1 )) && (( _DGO_LIVE_SELECTED-- ))
+    _dgo_live_render
+  }
+
+  function _dgo_live_down() {
+    (( _DGO_LIVE_SELECTED < ${#_DGO_LIVE_VALUES} )) && (( _DGO_LIVE_SELECTED++ ))
+    _dgo_live_render
+  }
+
+  function _dgo_live_line_finish() {
+    _dgo_live_cancel_timer
+    _dgo_live_restore_keys
+    _DGO_LIVE_LAST_BUFFER=''
+    _DGO_LIVE_SNAPSHOT=''
+    _DGO_LIVE_BASE_KEYMAP=''
+    zle -M ''
+    zle -R -c
+  }
+
   function _dgo_accept_suggestion() {
     local before="$LBUFFER" after="$RBUFFER" suggestion
     suggestion="$(printf '%s\0%s\0' "$before" "$after" | command dgo __suggest-shell --shell zsh --cwd "$PWD" 2>/dev/null)"
@@ -129,8 +318,17 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
 
   zle -N _dgo_accept_suggestion
   zle -N _dgo_pick_suggestion
+  zle -N _dgo_live_ready
+  zle -N _dgo_live_accept
+  zle -N _dgo_live_dismiss
+  zle -N _dgo_live_up
+  zle -N _dgo_live_down
   bindkey '^F' _dgo_accept_suggestion
   bindkey '^[[Z' _dgo_pick_suggestion
+  if command dgo __suggest-live-enabled >/dev/null 2>&1; then
+    add-zle-hook-widget line-pre-redraw _dgo_live_pre_redraw
+    add-zle-hook-widget line-finish _dgo_live_line_finish
+  fi
 fi
 
 if command dgo __suggest-history-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
@@ -493,6 +691,20 @@ _dgo_bookmark_names() {
   names=(${(f)"$(command dgo bookmarks 2>/dev/null | sed -n 's/^@\([^ ]*\).*/\1/p')"})
   _describe 'bookmark' names
 }
+_dgo_live_engine_matches() {
+  local value display label replacement
+  local -a values labels
+  while IFS= read -r -d $'\0' value &&
+        IFS= read -r -d $'\0' display &&
+        IFS= read -r -d $'\0' label &&
+        IFS= read -r -d $'\0' replacement; do
+    values+=("$value")
+    labels+=("$label  $display")
+  done < <(printf '%s\0%s\0' "$LBUFFER" "$RBUFFER" |
+    command dgo __suggest-complete --shell zsh --cwd "$PWD" \
+      --terminal-rows "$LINES" --terminal-columns "$COLUMNS" 2>/dev/null)
+  (( ${#values} )) && compadd -Q -d labels -a values
+}
 _dgo() {
   local -a commands global_options
   commands=(
@@ -505,6 +717,7 @@ _dgo() {
     'forward:go forward in session history' 'import:import navigation history'
     'bookmarks:list bookmarks' 'bookmark:manage bookmarks' 'doctor:inspect configuration'
     'stats:show local statistics' 'config:inspect configuration' 'support:show support guidance'
+    'suggestions:manage shell-native suggestions'
     'update-notifications:enable or disable update notices'
   )
   global_options=(
@@ -516,7 +729,7 @@ _dgo() {
   )
   _arguments -C $global_options '1:command:->command' '*:query:->query'
   case $state in
-    command) _describe 'command' commands ;;
+    command) _describe 'command' commands; _dgo_live_engine_matches ;;
     query)
       case $words[2] in
         bookmark) _arguments '1:operation:(add remove rename)' '2:bookmark:_dgo_bookmark_names' ;;
@@ -527,6 +740,7 @@ _dgo() {
         suggestions) _arguments '1:operation:(enable disable status doctor history)' ;;
       esac ;;
   esac
+  [[ "$state" == query ]] && _dgo_live_engine_matches
 }
 compdef _dgo dgo
 "#;
@@ -634,5 +848,21 @@ mod tests {
         let fish = integration(Shell::Fish);
         assert!(fish.contains("if command dgo __suggest-pick --shell fish"));
         assert!(fish.contains("; and test -f \"$result_file\""));
+    }
+
+    #[test]
+    fn zsh_live_panel_uses_redraw_hooks_and_a_stale_safe_native_timer() {
+        let script = integration(Shell::Zsh);
+        assert!(script.contains("add-zle-hook-widget line-pre-redraw _dgo_live_pre_redraw"));
+        assert!(script.contains("add-zle-hook-widget line-finish _dgo_live_line_finish"));
+        assert!(script.contains("zle -F"));
+        assert!(script.contains("sleep 0.03"));
+        assert!(script.contains("_DGO_LIVE_GENERATION"));
+        assert!(script.contains("_DGO_LIVE_SNAPSHOT"));
+        assert!(script.contains("zle -M \"$panel\""));
+        assert!(script.contains("function _dgo_live_accept()"));
+        assert!(script.contains("function _dgo_live_dismiss()"));
+        assert!(!script.contains("bindkey 'a'"));
+        assert!(!script.contains("bindkey ' '"));
     }
 }

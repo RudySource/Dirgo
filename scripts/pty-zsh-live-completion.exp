@@ -1,0 +1,91 @@
+#!/usr/bin/expect -f
+
+set timeout 20
+encoding system utf-8
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-zsh-live-[pid]-[clock seconds]"
+set root "$sandbox/filesystem"
+file mkdir "$root/Projects/Slash"
+file mkdir "$root/Projects/Slate"
+file mkdir "$sandbox/config/dirgo"
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$root\"\]"
+puts $config "\[suggestions\]"
+puts $config "enabled = true"
+puts $config "live_panel = true"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(DGO_TEST_ROOT) "$root"
+set env(TERM) "xterm-256color"
+set env(PATH) "[file dirname $env(DGO_BIN)]:$env(PATH)"
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+set refresh [wait]
+if {[lindex $refresh 3] != 0} {
+    file delete -force $sandbox
+    exit 1
+}
+
+spawn -noecho /bin/zsh -f
+send -- "stty rows 24 columns 100; PS1='DGO-LIVE> '; eval \"\$(\$DGO_BIN init zsh)\"; cd \"\$DGO_TEST_ROOT\"; print -r -- LIVE:ready\r"
+expect -exact "LIVE:ready"
+expect -exact "DGO-LIVE> "
+
+foreach character {d g o { } s l} {
+    send -- "$character"
+    after 8
+}
+expect {
+    -re {Slash|Slate} {}
+    timeout { puts stderr "automatic Zsh list did not appear"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+
+# The panel must not submit the line by itself.
+after 150
+send -- "\003"
+expect -exact "DGO-LIVE> "
+send -- {[[ "$PWD" == "$DGO_TEST_ROOT" ]] && print -r -- LIVE:not-executed}
+send -- "\r"
+expect -exact "LIVE:not-executed"
+expect -exact "DGO-LIVE> "
+
+send -- "dgo sl"
+expect {
+    -re {Slash|Slate} {}
+    timeout { puts stderr "automatic Zsh list did not reappear"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\033\[B"
+expect {
+    -re {›  DIR  Slate} {}
+    timeout { puts stderr "Down did not move the live selection"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\t"
+after 250
+expect {
+    -re {/Projects/Slate} {}
+    timeout { puts stderr "Tab did not insert a visible completion"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\r"
+expect -exact "DGO-LIVE> "
+send -- {print -r -- "LIVE:PWD=$PWD"}
+send -- "\r"
+expect {
+    -re {LIVE:PWD=.*/Projects/Slate} {}
+    timeout { puts stderr "inserted command did not navigate"; send -- "exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+
+send -- "exit\r"
+expect eof
+set result [wait]
+file delete -force $sandbox
+exit [expr {[lindex $result 3] == 0 ? 0 : 1}]

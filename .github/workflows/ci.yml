@@ -102,6 +102,7 @@ jobs:
           expect scripts/pty-terminal-gates.exp
           expect scripts/pty-shell-matrix.exp
           DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
+          expect scripts/pty-zsh-live-completion.exp
 
   dependency-policy:
     name: dependency policy

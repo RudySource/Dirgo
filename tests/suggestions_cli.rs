@@ -18,6 +18,7 @@ impl Fixture {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().join("filesystem");
         fs::create_dir_all(root.join("Projects/Punk")).expect("fixture tree");
+        fs::create_dir_all(root.join("Projects/Slash")).expect("fixture tree");
         let config_dir = temp.path().join("config/dirgo");
         fs::create_dir_all(&config_dir).expect("config directory");
         fs::write(
@@ -137,6 +138,48 @@ fn hidden_suggestion_command_reads_the_buffer_from_stdin_and_emits_one_frame() {
             .replacement
             .ends_with("/Projects/Punk")
     );
+}
+
+#[test]
+fn zsh_completion_stream_returns_nul_delimited_tokens_without_executing_them() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    fixture.command().arg("refresh").assert().success();
+    let cwd = fixture.temp.path().join("filesystem");
+    let output = fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "zsh",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--terminal-rows",
+            "24",
+            "--terminal-columns",
+            "100",
+        ])
+        .write_stdin(b"dgo sl\0\0".as_slice())
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
+    let fields = output
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .map(|field| std::str::from_utf8(field).expect("utf8 completion field"))
+        .collect::<Vec<_>>();
+    assert_eq!(fields.len(), 4);
+    assert!(fields[0].ends_with("/Projects/Slash"));
+    assert_eq!(fields[1], "Slash");
+    assert_eq!(fields[2], "DIR");
+    assert!(fields[3].ends_with("/Projects/Slash"));
 }
 
 #[test]

@@ -73,7 +73,8 @@ for required_file in \
   packaging/homebrew/dirgo.rb.template packaging/scoop/dirgo.json.template \
   scripts/demo-setup.sh scripts/render-homebrew-formula.sh \
   scripts/render-scoop-manifest.sh scripts/repository-hygiene.sh \
-  scripts/pty-suggestions-smoke.exp scripts/windows-suggestions-smoke.ps1 \
+  scripts/pty-suggestions-smoke.exp scripts/pty-zsh-live-completion.exp \
+  scripts/windows-suggestions-smoke.ps1 \
   powershell/DirgoPredictor/DirgoPredictor.cs \
   powershell/DirgoPredictor/DirgoPredictor.csproj \
   powershell/DirgoPredictor/DirgoPredictor.psd1 \
@@ -122,6 +123,7 @@ expect scripts/pty-picker-smoke.exp
 expect scripts/pty-terminal-gates.exp
 expect scripts/pty-shell-matrix.exp
 DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
+expect scripts/pty-zsh-live-completion.exp
 DGO_FIXTURE_BIN="$repo_root/target/release/dgo-fixture" \
   scripts/benchmark-cli.sh --directories 100 --samples 1
 

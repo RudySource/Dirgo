@@ -232,6 +232,15 @@ pub fn run() -> Result<i32> {
     if matches!(cli.command, Some(Command::SuggestEnabled)) {
         return Ok(if config.suggestions.enabled { 0 } else { 1 });
     }
+    if matches!(cli.command, Some(Command::SuggestLiveEnabled)) {
+        return Ok(
+            if config.suggestions.enabled && config.suggestions.live_panel {
+                0
+            } else {
+                1
+            },
+        );
+    }
     if matches!(cli.command, Some(Command::SuggestHistoryEnabled)) {
         return Ok(
             if config.suggestions.enabled && config.suggestions.command_history {
@@ -243,6 +252,22 @@ pub fn run() -> Result<i32> {
     }
     if let Some(Command::SuggestShell { shell, cwd }) = &cli.command {
         return hidden_suggest_shell(&paths, &config, *shell, cwd);
+    }
+    if let Some(Command::SuggestComplete {
+        shell,
+        cwd,
+        terminal_rows,
+        terminal_columns,
+    }) = &cli.command
+    {
+        return hidden_suggest_complete(
+            &paths,
+            &config,
+            *shell,
+            cwd,
+            *terminal_rows,
+            *terminal_columns,
+        );
     }
     if let Some(Command::SuggestPick {
         shell,
@@ -306,8 +331,10 @@ pub fn run() -> Result<i32> {
             | Command::SuggestWorker { .. }
             | Command::SuggestRecord
             | Command::SuggestEnabled
+            | Command::SuggestLiveEnabled
             | Command::SuggestHistoryEnabled
             | Command::SuggestShell { .. }
+            | Command::SuggestComplete { .. }
             | Command::SuggestPick { .. },
         ) => {
             unreachable!("handled before command dispatch")
@@ -664,6 +691,68 @@ fn shell_suggestion_request(
         terminal_rows: None,
         terminal_columns: None,
         presentation: crate::suggestions::SuggestionPresentation::Explicit,
+    }
+}
+
+fn hidden_suggest_complete(
+    paths: &AppPaths,
+    config: &Config,
+    shell: crate::shell::Shell,
+    cwd: &Path,
+    terminal_rows: Option<u16>,
+    terminal_columns: Option<u16>,
+) -> Result<i32> {
+    if !config.suggestions.enabled {
+        return Ok(0);
+    }
+    let (before_cursor, after_cursor) = read_shell_buffer(None)?;
+    let context =
+        crate::suggestions::CompletionContext::parse(shell.suggestion_kind(), &before_cursor);
+    let mut request =
+        shell_suggestion_request(config, shell, cwd, before_cursor.clone(), after_cursor);
+    request.terminal_rows = terminal_rows;
+    request.terminal_columns = terminal_columns;
+    request.presentation = crate::suggestions::SuggestionPresentation::List;
+    let suggestions =
+        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request);
+    let unchanged_prefix = &before_cursor[..context.replacement_start()];
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    for suggestion in suggestions {
+        let Some(token) = suggestion.edit.replacement.strip_prefix(unchanged_prefix) else {
+            continue;
+        };
+        let label = suggestion_source_label(suggestion.source);
+        output
+            .write_all(token.as_bytes())
+            .and_then(|_| output.write_all(&[0]))
+            .and_then(|_| output.write_all(suggestion.display.as_bytes()))
+            .and_then(|_| output.write_all(&[0]))
+            .and_then(|_| output.write_all(label.as_bytes()))
+            .and_then(|_| output.write_all(&[0]))
+            .and_then(|_| output.write_all(suggestion.edit.replacement.as_bytes()))
+            .and_then(|_| output.write_all(&[0]))
+            .map_err(|error| DirgoError::io("stdout", error))?;
+    }
+    output
+        .flush()
+        .map_err(|error| DirgoError::io("stdout", error))?;
+    Ok(0)
+}
+
+fn suggestion_source_label(source: crate::suggestions::SuggestionSource) -> &'static str {
+    use crate::suggestions::SuggestionSource;
+    match source {
+        SuggestionSource::Directory => "DIR",
+        SuggestionSource::NavigationHistory => "NAV",
+        SuggestionSource::CommandHistory => "HIST",
+        SuggestionSource::Executable => "PATH",
+        SuggestionSource::Command => "CMD",
+        SuggestionSource::Subcommand => "SUB",
+        SuggestionSource::Option => "OPT",
+        SuggestionSource::Builtin => "BLT",
+        SuggestionSource::Alias => "ALS",
+        SuggestionSource::Filesystem => "FILE",
     }
 }
 
