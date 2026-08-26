@@ -43,7 +43,8 @@
 
 </div>
 
-Dirgo finds directories by intent, not by memory. It indexes the filesystem so you can jump to projects you have never visited, then uses local history to improve ranking over time.
+Dirgo indexes your filesystem, finds directories you have never visited, and
+uses local history to improve ranking over time.
 
 | ⚡ **55 ms** | 🗂️ **1M directories** | 🔒 **Zero telemetry** | 🐚 **Four shells** |
 | :---: | :---: | :---: | :---: |
@@ -55,9 +56,6 @@ Dirgo finds directories by intent, not by memory. It indexes the filesystem so y
 
 <p align="center"><sub>Type a fragment. See live matches. Press Enter. You are there.</sub></p>
 
-> [!TIP]
-> Unlike history-only jumpers, Dirgo can discover a directory before you have visited it. Existing paths such as `..`, `./src`, `~/Projects`, and `-` still use the shell's direct fast path.
-
 ## Why Dirgo
 
 | | Capability | What it means for you |
@@ -67,21 +65,13 @@ Dirgo finds directories by intent, not by memory. It indexes the filesystem so y
 | **Stay fast** | Rust + background matching | The UI opens immediately while candidates stream in. |
 | **Keep control** | Local-first storage | No account, cloud service, telemetry, or network request during normal use. |
 
-Dirgo ships as one `dgo` binary. It has no runtime dependency on `fd`, `fzf`, `zoxide`, or `eza`.
+One `dgo` binary; no runtime dependency on `fd`, `fzf`, `zoxide`, or `eza`.
 
 ## Install
-
-Install the binary, connect your shell once, then jump by intent instead of typing full paths.
 
 <p align="center">
   <img src="docs/assets/dirgo-install.gif" width="860" alt="Installing Dirgo, connecting Zsh, and making the first directory jump">
 </p>
-
-| **01 · Install** | **02 · Connect** | **03 · Go** |
-| :---: | :---: | :---: |
-| Use the verified release installer or Homebrew. | `dgo setup` shows the shell change before applying it. | Run `dgo <name>` from anywhere. |
-
-<p align="center"><sub>The animation shows the Homebrew route on macOS. The release installer and manual packages are below.</sub></p>
 
 ### macOS and Linux
 
@@ -89,7 +79,8 @@ Install the binary, connect your shell once, then jump by intent instead of typi
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.sh | sh
 ```
 
-The installer detects your platform, verifies the release checksum, installs to `~/.local/bin`, then shows the exact shell change before asking for confirmation.
+Detects the platform, verifies SHA-256, installs to `~/.local/bin`, then asks
+before connecting the shell.
 
 > [!TIP]
 > Prefer Homebrew? One paste does the same onboarding: `brew install rudysource/tap/dirgo && dgo setup`
@@ -100,11 +91,10 @@ The installer detects your platform, verifies the release checksum, installs to 
 irm https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1 | iex
 ```
 
-The PowerShell installer verifies SHA-256 before copying `dgo.exe` and its
-predictor module, then asks before changing your user `PATH`. Open a new
-PowerShell 7+ session and run `dgo setup` to connect parent-shell navigation.
+Verifies SHA-256, installs `dgo.exe` with its predictor, and asks before changing
+the user `PATH`. Open PowerShell 7+ and run `dgo setup`.
 
-Prefer Scoop? Add the official bucket and install Dirgo:
+Or use the official Scoop bucket:
 
 ```powershell
 scoop bucket add rudysource https://github.com/RudySource/scoop-bucket
@@ -117,9 +107,8 @@ scoop install rudysource/dirgo
 
 ### What setup changes
 
-`dgo setup` manages one clearly marked block in your Zsh, Bash, Fish, or
-PowerShell profile. Before writing, it previews the target and content. On
-approval it creates a timestamped backup and replaces the file atomically.
+`dgo setup` previews one managed block for Zsh, Bash, Fish, or PowerShell. On
+approval it creates a timestamped backup and updates the profile atomically.
 
 ```bash
 dgo setup --dry-run     # preview only
@@ -127,7 +116,8 @@ dgo setup               # connect or repair
 dgo setup --remove      # remove only Dirgo's managed block
 ```
 
-It never uses `sudo`, sends telemetry, or silently edits a shell file in a non-interactive session. Automation requires explicit consent with `dgo setup --yes`.
+It never uses `sudo` or silently edits a non-interactive shell. Automation must
+opt in with `dgo setup --yes`.
 
 <details>
 <summary><strong>Manual install and checksum verification</strong></summary>
@@ -142,12 +132,10 @@ sha256sum --check SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the matching
-entry in `SHA256SUMS`. Extract the whole archive into a directory on `PATH`,
-keeping the versioned `DirgoPredictor` directory beside `dgo.exe`, then run
-`dgo setup`.
+On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with
+`SHA256SUMS`. Keep `DirgoPredictor/<version>` beside `dgo.exe`.
 
-Release assets also carry GitHub artifact attestations. With the GitHub CLI installed, verify provenance with `gh attestation verify <archive> --repo RudySource/Dirgo`.
+Release assets include GitHub attestations: `gh attestation verify <archive> --repo RudySource/Dirgo`.
 
 </details>
 
@@ -164,16 +152,11 @@ install -m 755 target/release/dgo ~/.local/bin/dgo
 dgo setup
 ```
 
-That builds the cross-platform CLI and the safe PowerShell `Ctrl+F` fallback.
-To build the native PowerShell 7.4 predictor on Windows, also install .NET 8,
-then run:
+For the native PowerShell 7.4 predictor, install .NET 8 and run:
 
 ```powershell
 dotnet build powershell/DirgoPredictor/DirgoPredictor.csproj --configuration Release --locked-mode
 ```
-
-Keep the resulting DLL plus `DirgoPredictor.psd1` under
-`DirgoPredictor/<version>` beside `dgo.exe`.
 
 </details>
 
@@ -193,27 +176,24 @@ dgo recent        # browse Dirgo history
 dgo back          # move back in this shell session
 ```
 
-The first search builds a missing index automatically. Run `dgo refresh` whenever you want to pick up filesystem changes immediately.
+The first search creates the index. Run `dgo refresh` after filesystem changes.
 
 ## Interactive picker
 
-The picker opens when a query is ambiguous or when you run `dgo` without a destination. Typing filters results immediately; preview work stays off the input path.
+The picker opens for ambiguous queries or bare `dgo`.
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓` or `Ctrl-K` / `Ctrl-J` | Move the selection |
-| `Home` / `End` or `PageUp` / `PageDown` | Move through long lists |
+| `↑` / `↓`, `Ctrl-K` / `Ctrl-J` | Move the selection |
+| `Home` / `End`, `PageUp` / `PageDown` | Move through long lists |
 | `Enter` | Go to the selected directory |
 | `Tab` | Toggle the directory preview |
 | `Shift-↑` / `Shift-↓` | Scroll the directory contents without moving the selection |
-| `Shift-Home` / `Shift-End`, `Shift-PageUp` / `Shift-PageDown` | Jump or page through the directory contents |
-| `Ctrl-B` / `Ctrl-F` | Alternative page controls for the directory contents |
 | `Ctrl-R` | Rebuild the index atomically |
 | `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or launch the configured editor |
-| `Ctrl-U` | Clear the query |
 | `Esc` / `Ctrl-C` | Close without navigating |
 
-Use `NO_COLOR=1` or `--no-color` without losing visual hierarchy. Use `--no-unicode` for ASCII-only symbols. `TERM=dumb` activates the plain numbered selector.
+Compatibility: `NO_COLOR=1`, `--no-unicode`, or `TERM=dumb`.
 
 ## Commands
 
@@ -249,49 +229,35 @@ Run `dgo --help` or `dgo <command> --help` for the complete interface.
 
 ### Shell-native suggestions
 
-Suggestions are local and opt-in. Enable them, then open a new shell or reload
-the managed Dirgo integration:
+Suggestions are local and opt-in. Enable them, then reload the shell:
 
 ```bash
 dgo suggestions enable
 ```
 
-Dirgo merges indexed directories, filesystem entries, commands found on
-`PATH`, known subcommands/options, navigation history, and (when enabled)
-filtered command history. The built-in command pack covers Git, Docker and
-Compose, Cargo/Rustup, npm/pnpm/Yarn/Bun, kubectl, GitHub CLI, Homebrew, Go,
-Helm, Terraform, Podman, major cloud CLIs, .NET, Python/PHP/JVM tooling,
-deployment CLIs, curl/SSH, ripgrep/fd, and other common developer tools. For
-example, `git ch`, `docker co`, and `docker compose u` offer `checkout`,
-`compose`, and `up`. Source labels such as `DIR`, `PATH`, `SUB`, and `OPT` make a
-larger list easy to scan.
+Dirgo merges directories, filesystem entries, executables, known
+subcommands/options, navigation history, and optional filtered command history.
+The built-in catalog covers Git, Docker, Cargo, package managers, kubectl,
+cloud CLIs, and other common developer tools. For example, `git ch` and
+`docker compose u` offer `checkout` and `up`.
 
-- **Zsh:** after a 30 ms debounce, a three-row panel appears immediately below
-  the editable command line and expands to six rows while navigating. Use
-  `Up`/`Down`, `Page Up`/`Page Down`, `Tab` to insert, or `Esc` to dismiss.
-  Results are fetched in pages and the header shows the visible range plus the
-  exact total, so large command catalogs stay fast without being truncated to
-  the first few matches. On wide terminals the selected command's description
-  appears in a quiet preview column; narrower terminals place the same concise
-  explanation below the active row without hiding the prompt.
+- **Zsh:** a paged panel follows the editable line after a 30 ms debounce. Use
+  arrows or Page Up/Down, `Tab` to insert, and `Esc` to close. The selected
+  description moves from a side preview to a compact row on narrow terminals.
 - **PowerShell 7.4.x + PSReadLine 2.2.2+:** suggestions use native ListView;
   `F2` switches PSReadLine's prediction view.
-- **Fish and Bash 4+:** Dirgo enriches each shell's native `Tab` completion
-  menu without replacing the line editor or other commands' completions.
+- **Fish and Bash 4+:** Dirgo enriches native `Tab` completion.
 
-On every supported shell, `Ctrl+F` inserts the best result and `Shift+Tab`
-opens the explicit source-labelled picker. Insertion never submits or executes
-the command. Other PowerShell 7 versions retain navigation and `Ctrl+F`.
+`Ctrl+F` inserts the best result; `Shift+Tab` opens the source-labelled picker.
+Insertion never submits or executes the command. Other PowerShell 7 versions
+retain navigation and `Ctrl+F`.
 
-Command-history suggestions remain off until separately enabled with
-`dgo suggestions history enable`. Likely credentials and unsafe terminal text
-are rejected before storage. Disable collection without deleting existing data
-with `history disable`, or erase only this store with `history clear`.
+Command history stays off until `dgo suggestions history enable`. Likely
+credentials and unsafe terminal text are rejected before storage; use
+`history disable` or `history clear` at any time.
 
-Installed tools that are not in the built-in pack still appear as `PATH`
-commands and keep their shell's normal Tab completion. To teach Dirgo a private
-or less common CLI, create a `.toml` file in a `completions` directory beside
-the path printed by `dgo config path`:
+Unknown installed tools still appear as `PATH` commands. Add data-only metadata
+for a private CLI in `completions/*.toml` beside `dgo config path`:
 
 ```toml
 name = "acme"
@@ -307,34 +273,30 @@ name = "--production"
 description = "Deploy to production"
 ```
 
-These files are bounded, data-only metadata. Dirgo does not run a tool,
-completion script, or `--help` command while you type.
+Dirgo bounds these files and never runs the tool, `--help`, or a completion
+script while you type.
 
-Dirgo checks GitHub Releases in a detached background process at most once per
-day. A later invocation displays a short notice when a newer stable version is
-available, so directory navigation never waits for the network. `dgo --update`
-uses the detected installation source (Homebrew, Cargo, Scoop, or the verified
-release installer). The notification preference is persistent and does not
-disable manual updates.
+`dgo --update` uses the detected Homebrew, Cargo, Scoop, or installer source.
+The optional daily version check is detached and never blocks navigation.
 
-Action flags work on either side of the query, so both forms below are equivalent:
+Action flags work on either side of the query:
 
 ```bash
 dgo --finder "project name"
 dgo "project name" --finder
 ```
 
-The same ordering applies to `--open`, `--code`, `--copy`, and `--print`. Only one action may be requested at a time.
+The same applies to `--open`, `--code`, `--copy`, and `--print`.
 
 ### Resolution safety
 
-Dirgo navigates automatically only when it has an existing explicit path, an exact bookmark, a unique exact basename, or a strongly dominant visited prefix. Fuzzy typos, duplicate names, close scores, stale paths, and forced `?` queries require selection.
-
-This bias is deliberate: one picker is cheaper than silently changing to the wrong project.
+Automatic navigation requires an explicit path, exact bookmark, unique exact
+basename, or strongly dominant visited prefix. Everything ambiguous opens the
+picker.
 
 ## Configuration
 
-Dirgo follows the XDG base-directory convention and reads:
+Dirgo reads:
 
 ```text
 ${XDG_CONFIG_HOME:-~/.config}/dirgo/config.toml
@@ -380,18 +342,14 @@ retention_days = 180
 deny_patterns = []
 ```
 
-`actions.editor` accepts one executable name or path, never a shell command line.
-Suggestion and command-history enablement are separate privacy choices.
-`max_results` is additionally constrained to 5–12 visible rows according to
-terminal height. `debounce_ms` controls the Zsh live panel delay;
-`native_timeout_ms` bounds the native predictor response budget.
-`ui.height_percent` is capped to the useful picker content height, so closing the picker does not leave a large empty terminal block.
+`actions.editor` accepts one executable, never a command line. Suggestion and
+command-history enablement are separate. Visible results are clamped to 5–12
+rows; debounce and native predictor work have explicit time budgets.
 
 </details>
 
-The disposable index lives below `XDG_CACHE_HOME`. Bookmarks, visits, and navigation sessions live separately below `XDG_STATE_HOME`, so rebuilding the index never discards user state.
-
-State growth is bounded: history retains at most 50,000 rows, each shell session keeps its latest 256 transitions, and abandoned sessions are pruned in batches.
+The rebuildable index lives below `XDG_CACHE_HOME`; bookmarks and history stay
+below `XDG_STATE_HOME`. Persistent state is bounded and pruned.
 
 ## Platform support
 
@@ -402,12 +360,11 @@ State growth is bounded: history retains at most 50,000 rows, each shell session
 | Linux x86_64 GNU | One-command installer, archive; glibc 2.35+ | Zsh, Bash, Fish |
 | Windows x86_64 MSVC | PowerShell installer, Scoop, archive | PowerShell 7+ navigation and insertion; native predictor on 7.4.x |
 
-WSL uses its installed Zsh, Bash, or Fish adapter. Windows PowerShell 5.1 and
-`cmd.exe` are outside the supported matrix.
+WSL uses its Zsh, Bash, or Fish adapter. PowerShell 5.1 and `cmd.exe` are not supported.
 
 ## Performance
 
-Dirgo keeps direct paths in the shell and streams large indexes into the matcher. On an Apple Silicon macOS host, an optimized release build produced the following three-sample PTY results:
+Apple Silicon macOS, optimized build, three-sample PTY run:
 
 | Indexed directories | First picker paint | First useful result |
 | ---: | ---: | ---: |
@@ -415,7 +372,8 @@ Dirgo keeps direct paths in the shell and streams large indexes into the matcher
 | 500,000 | 53.529 ms | 35.209 ms |
 | 1,000,000 | 55.180 ms | 35.236 ms |
 
-¹ These are reproducible local measurements, not universal latency guarantees. The 1M-directory release budget is 100 ms for both metrics.
+¹ Reproducible local measurements, not universal guarantees. The 1M release
+budget is 100 ms for both metrics.
 
 Run a lightweight benchmark against your own index:
 
@@ -426,14 +384,13 @@ dgo bench --query punk --samples 5
 ## Privacy and security
 
 - No telemetry, analytics, account, cloud sync, or network call during normal use.
-- Suggestions and command-history collection are disabled independently by default; suggestion data remains local and can be cleared without touching navigation history.
+- Suggestions and command-history collection are independently disabled by default.
 - Paths cross the shell boundary as data and are never interpolated into executable shell text.
 - Human-facing output escapes terminal controls and bidirectional overrides from untrusted filenames.
-- Index publication is atomic; corrupted local data is preserved under a timestamped backup name before recovery.
-- Unknown persistent-state schemas are never overwritten.
+- Index publication is atomic; recovery preserves corrupted data and never overwrites unknown schemas.
 
 > [!WARNING]
-> The local index contains filesystem paths. Protect your XDG cache and state directories like other private application data, and remove personal paths from issue logs or screenshots.
+> The local index contains filesystem paths. Remove personal paths from logs and screenshots.
 
 Report vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
 
@@ -444,16 +401,15 @@ Report vulnerabilities privately through the process in [SECURITY.md](SECURITY.m
 dgo query punk --json
 ```
 
-Resolved paths are written to stdout without decoration. Diagnostics and selector UI use stderr. Resolver exit codes are `0` for success, `3` for no match, and `4` for ambiguous or cancelled selection; Clap uses `2` for invalid arguments.
+Resolved paths use stdout; diagnostics and UI use stderr. Exit codes: `0`
+success, `3` no match, `4` ambiguous/cancelled, `2` invalid arguments.
 
-UTF-8 paths with spaces, quotes, Unicode, brackets, emoji, and leading dashes are supported. Newline-containing and non-UTF-8 Unix paths are rejected at the shell command-substitution boundary. Direct existing paths handled by the wrapper do not cross that boundary.
+UTF-8 paths with spaces, quotes, Unicode, emoji, and leading dashes are supported.
+Newline-containing and non-UTF-8 Unix paths are rejected at the shell boundary.
 
 </details>
 
 ## Technology
-
-The implementation is primarily **Rust**, with focused Shell, PowerShell, C#,
-and Ruby packaging surfaces.
 
 | Layer | Technology | Role |
 | --- | --- | --- |
@@ -467,56 +423,42 @@ and Ruby packaging surfaces.
 
 ## Release status and roadmap
 
-**Dirgo 0.4 is the current product release.** It adds private shell-native
-suggestions and complete PowerShell 7 integration while preserving the
-shell as the sole owner of editing and execution.
+Version 0.4 completes Dirgo's shell-native suggestion layer. Version 0.5 adds
+project-scoped commands on top of that existing engine.
 
-| Status | Release area | Outcome |
-| --- | --- | --- |
-| ✅ Shipped | Navigation core | Indexed discovery, fuzzy picker, bookmarks, recent history, project roots, and per-shell back/forward navigation |
-| ✅ Shipped | Safety and privacy | Local-only operation, escaped terminal output, bounded state, non-destructive recovery, and repository hygiene gates |
-| ✅ Shipped | Installation | One-command macOS/Linux and Windows installers, Homebrew, the official Scoop bucket, verified archives, and reversible Zsh/Bash/Fish/PowerShell setup |
-| ✅ Shipped | Release quality | Rust formatting and lint gates, unit/integration/PTY tests, dependency policy, checksums, and build attestations |
-| ✅ Shipped | Action workflow | Open, Finder, editor, clipboard, and print actions work before or after a query and pass safely through shell integration |
-| ✅ Shipped | Picker ergonomics | Useful-content inline height, reliable cursor restoration, configurable preview visibility, and scrollable bounded directory contents |
-| ✅ Shipped | Package automation | Release checksums render validated Homebrew and Scoop packages, with a safe manual fallback when cross-repository credentials are not configured |
-| ✅ Shipped | Shell suggestions | Opt-in local providers, safe insertion, explicit Unix picker, native PowerShell predictor, privacy controls, and bounded storage |
-| 🎯 Next | Project intelligence | Turn local project manifests into fast, contextual actions without executing project code |
-| 🔭 Future | More platforms | Linux ARM64 and musl builds, followed by additional package managers where demand justifies maintenance |
-| 🔭 Future | Distribution trust | Platform code signing/notarization and a stable-package publication flow for ecosystems beyond Homebrew |
+| Track | State | Product outcome |
+| --- | :---: | --- |
+| Navigation and picker | **Ready** | Indexed discovery, conservative fuzzy resolution, bookmarks, recents, project roots, preview, and per-shell back/forward navigation |
+| Safety and privacy | **Ready** | Local-only operation, opt-in command history, secret filtering, bounded storage and protocols, safe insertion without execution |
+| Distribution | **Ready** | Verified installers and archives for macOS, Linux, and Windows, plus Homebrew and Scoop packaging |
+| Shell intelligence · 0.4 | **Current release** | Zsh live panel, Bash/Fish native completions, PowerShell predictor, command catalog, descriptions, paging, and custom data-only command specs |
+| Project commands · 0.5 | **Next** | Suggest useful commands from the project the user is currently in, not from a global generic list alone |
 
-> [!NOTE]
-> Future items are update candidates, not missing release requirements. They
-> should enter development only with a defined user need, supported platform
-> matrix, regression tests, and a versioned release plan.
+### Dirgo 0.5 · Project Commands
 
-### Dirgo 0.5 · Project Intelligence
+Dirgo will read a small set of local manifests as bounded data, combine declared
+tasks with its command catalog, and insert the selected command—never execute it.
 
-The next release moves Dirgo from knowing *where a project is* to understanding
-*what can be done there*. Suggestions will stay local, data-only, and safe to
-inspect: Dirgo may insert an action into the shell buffer, but the user remains
-the only one who can execute it.
+<p align="center"><strong>Current directory → project root → declared task → one safe insertion</strong></p>
 
-<p align="center"><strong>Detect the project → read trusted metadata → rank useful actions → insert, never execute</strong></p>
+| Priority | 0.5 deliverable | Definition of done |
+| :---: | --- | --- |
+| **P0** | Project-scoped provider | Reuse existing project-root detection; show labelled project results only inside that project |
+| **P0** | JavaScript tasks | Read bounded `package.json` scripts and emit the detected npm, pnpm, Yarn, or Bun form without invoking it |
+| **P0** | Rust targets | Read packages, binaries, examples, and features from `Cargo.toml`; complete concrete Cargo forms without calling Cargo |
+| **P0** | Local cache | Fingerprint manifests, invalidate only changed projects, and keep parsing off the input path |
+| **P1** | More manifests | Conservatively parse simple Make/Just tasks and Compose services; ignore dynamic or ambiguous definitions |
+| **P1** | Ranking and detail | Prefer exact task prefixes and project relevance; show source and description in the current compact UI |
+| **Gate** | Release confidence | Preserve bounded, cancellable, insertion-only behavior and pass the full OS/shell release matrix |
 
-| Stage | Product surface | Release outcome |
-| --- | --- | --- |
-| **01 · Foundation** | Provider registry, typed suggestion metadata, source provenance, per-provider budgets | New sources plug in without growing one central engine; slow or malformed providers cannot delay input |
-| **02 · Project actions** | `package.json`, Cargo configuration, Make, Just, Taskfile, mise, and Compose | Scripts, targets, services, and aliases appear only where they are relevant, with their source and concise description |
-| **03 · Context** | Project-aware history with cwd, success, duration, and recency | Commands that worked in this project rank above generic history while collection remains separately opt-in |
-| **04 · Freshness** | Cached manifest fingerprints and incremental project refresh | Edited tasks appear quickly without a full filesystem rebuild or a required always-on daemon |
-| **05 · Experience** | Quiet live rows, richer selected-item detail, native fallbacks, narrow-terminal layouts | The extra context stays readable in Zsh, Bash, Fish, PowerShell, ASCII, and `NO_COLOR` modes |
-| **06 · Trust** | Schema migrations, privacy controls, adversarial fixtures, PTY and native Windows gates | Every accepted suggestion still inserts only; project files are parsed as bounded data and never sourced or executed |
+#### Release boundary
 
-**0.5 ships only when:** the 0.4 latency budgets do not regress; all parsers are
-bounded and cacheable; disabling a provider takes effect immediately; corrupted
-metadata degrades to no suggestions; and the complete macOS, Linux, Windows,
-Zsh, Bash, Fish, and PowerShell release matrix is green.
+0.5 requires production-ready `package.json` and `Cargo.toml` workflows,
+deterministic cache invalidation, and no manifest work on the keystroke path.
+Make, Just, and Compose ship only if they meet the same gates.
 
-Out of scope for 0.5: cloud sync, telemetry, generative AI, automatic command
-execution, arbitrary completion-script evaluation, and a mandatory background
-service. Those would weaken the product's speed or trust model instead of
-strengthening its core workflow.
+Out of scope: cloud/AI/telemetry, automatic execution, arbitrary completion
+scripts, a mandatory daemon, command exit tracking, and unrelated packaging work.
 
 ## Support Dirgo
 
