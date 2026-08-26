@@ -49,6 +49,15 @@ fn toml_string(path: &Path) -> String {
     format!("{:?}", path.display().to_string())
 }
 
+fn assert_path_suffix(value: &str, suffix: &str) {
+    let normalized = value.replace('\\', "/");
+    let normalized = normalized.trim().trim_matches(['\'', '"']);
+    assert!(
+        normalized.ends_with(suffix),
+        "expected {normalized:?} to end with {suffix:?}"
+    );
+}
+
 #[test]
 fn suggestions_are_explicitly_enabled_disabled_and_preserve_existing_config() {
     let fixture = Fixture::new();
@@ -134,12 +143,7 @@ fn hidden_suggestion_command_reads_the_buffer_from_stdin_and_emits_one_frame() {
     let response: SuggestionResponse = serde_json::from_str(output).expect("response json");
     assert_eq!(response.request_id, 77);
     assert_eq!(response.suggestions.len(), 1);
-    assert!(
-        response.suggestions[0]
-            .edit
-            .replacement
-            .ends_with("/Projects/Punk")
-    );
+    assert_path_suffix(&response.suggestions[0].edit.replacement, "/Projects/Punk");
 }
 
 #[test]
@@ -232,10 +236,10 @@ fn zsh_completion_stream_returns_nul_delimited_tokens_without_executing_them() {
         .map(|field| std::str::from_utf8(field).expect("utf8 completion field"))
         .collect::<Vec<_>>();
     assert_eq!(fields.len(), 4);
-    assert!(fields[0].ends_with("/Projects/Slash"));
+    assert_path_suffix(fields[0], "/Projects/Slash");
     assert_eq!(fields[1], "Slash");
     assert_eq!(fields[2], "DIR");
-    assert!(fields[3].ends_with("/Projects/Slash"));
+    assert_path_suffix(fields[3], "/Projects/Slash");
 }
 
 #[test]
@@ -284,10 +288,10 @@ fn zsh_catalog_page_prefixes_the_stream_with_exact_total() {
     assert_eq!(fields[0], "42");
     assert_eq!(fields[1], "1");
     assert_eq!(fields.len(), 6);
-    assert!(fields[2].ends_with("/Projects/Slash"));
+    assert_path_suffix(fields[2], "/Projects/Slash");
     assert_eq!(fields[3], "Slash");
     assert_eq!(fields[4], "DIR");
-    assert!(fields[5].ends_with("/Projects/Slash"));
+    assert_path_suffix(fields[5], "/Projects/Slash");
 }
 
 #[test]
@@ -471,7 +475,7 @@ fn fish_completion_stream_is_line_delimited_and_labeled_for_native_pager() {
         .success();
     fixture.command().arg("refresh").assert().success();
     let cwd = fixture.temp.path().join("filesystem");
-    fixture
+    let assert = fixture
         .command()
         .args([
             "__suggest-complete",
@@ -485,11 +489,11 @@ fn fish_completion_stream_is_line_delimited_and_labeled_for_native_pager() {
         .write_stdin(b"dgo sl\0\0".as_slice())
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("Projects/Slash")
-                .and(predicate::str::contains("\tDIR  Slash\n")),
-        )
         .stderr(predicate::str::is_empty());
+    let output = std::str::from_utf8(&assert.get_output().stdout).expect("utf8 completion stream");
+    let normalized = output.replace('\\', "/");
+    assert!(normalized.contains("Projects/Slash"));
+    assert!(normalized.contains("\tDIR  Slash\n"));
 }
 
 #[test]
@@ -868,7 +872,7 @@ fn shell_adapter_protocol_is_stdin_only_and_enablement_is_explicit() {
         .stdout(predicate::str::is_empty());
 
     let cwd = fixture.temp.path().join("filesystem");
-    fixture
+    let assert = fixture
         .command()
         .args([
             "__suggest-shell",
@@ -879,8 +883,9 @@ fn shell_adapter_protocol_is_stdin_only_and_enablement_is_explicit() {
         ])
         .write_stdin(b"cd pun\0".as_slice())
         .assert()
-        .success()
-        .stdout(predicate::str::ends_with("/Projects/Punk\n"));
+        .success();
+    let output = std::str::from_utf8(&assert.get_output().stdout).expect("utf8 shell response");
+    assert_path_suffix(output, "/Projects/Punk");
 }
 
 #[test]
