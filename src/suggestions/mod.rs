@@ -7,13 +7,14 @@ mod protocol;
 mod providers;
 mod sanitize;
 mod settings;
+mod specs;
 mod store;
 mod top_k;
 mod types;
 
 pub use catalog::{CommandCatalog, CommandOption, CommandSpec, portable_command_name};
 pub use context::CompletionContext;
-pub use engine::{SuggestionData, SuggestionEngine};
+pub use engine::{SuggestionData, SuggestionEngine, SuggestionPage};
 pub use picker::{PickerOptions, pick_suggestion};
 pub use protocol::{
     MAX_REQUEST_BYTES, ProtocolError, decode_request_line, encode_response_line, read_bounded_frame,

@@ -436,6 +436,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
  "windows-sys",
 ]
 

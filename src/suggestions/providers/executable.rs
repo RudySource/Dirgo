@@ -19,7 +19,7 @@ pub fn executable_suggestions(
             },
             display: executable.to_owned(),
             description: Some("PATH".into()),
-            source: SuggestionSource::Command,
+            source: SuggestionSource::Executable,
             score: 10_000.0 - executable.len() as f64,
         })
         .collect()

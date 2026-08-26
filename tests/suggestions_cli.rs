@@ -6,7 +6,9 @@ use std::{
 };
 
 use assert_cmd::Command;
-use dirgo::suggestions::{PROTOCOL_VERSION, ShellKind, SuggestionRequest, SuggestionResponse};
+use dirgo::suggestions::{
+    PROTOCOL_VERSION, ShellKind, SuggestionRequest, SuggestionResponse, SuggestionSource,
+};
 use predicates::prelude::*;
 
 struct Fixture {
@@ -141,6 +143,60 @@ fn hidden_suggestion_command_reads_the_buffer_from_stdin_and_emits_one_frame() {
 }
 
 #[test]
+fn suggestion_worker_loads_custom_command_specs_beside_config() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    let completions = fixture.temp.path().join("config/dirgo/completions");
+    fs::create_dir_all(&completions).expect("completions directory");
+    fs::write(
+        completions.join("acme.toml"),
+        r#"
+name = "acme"
+
+[[subcommands]]
+name = "deploy"
+description = "Deploy the current service"
+"#,
+    )
+    .expect("custom command spec");
+    let request = SuggestionRequest {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: 81,
+        shell: ShellKind::PowerShell,
+        cwd: fixture.temp.path().join("filesystem"),
+        before_cursor: "acme de".into(),
+        after_cursor: String::new(),
+        max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
+    };
+
+    let output = fixture
+        .command()
+        .arg("__suggest")
+        .write_stdin(format!(
+            "{}\n",
+            serde_json::to_string(&request).expect("request json")
+        ))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let response: SuggestionResponse = serde_json::from_slice(&output).expect("response");
+    assert_eq!(response.suggestions[0].edit.replacement, "acme deploy");
+    assert_eq!(
+        response.suggestions[0].description.as_deref(),
+        Some("Deploy the current service")
+    );
+}
+
+#[test]
 fn zsh_completion_stream_returns_nul_delimited_tokens_without_executing_them() {
     let fixture = Fixture::new();
     fixture
@@ -180,6 +236,229 @@ fn zsh_completion_stream_returns_nul_delimited_tokens_without_executing_them() {
     assert_eq!(fields[1], "Slash");
     assert_eq!(fields[2], "DIR");
     assert!(fields[3].ends_with("/Projects/Slash"));
+}
+
+#[test]
+fn zsh_catalog_page_prefixes_the_stream_with_exact_total() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    fixture.command().arg("refresh").assert().success();
+    let cwd = fixture.temp.path().join("filesystem");
+    let output = fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "zsh",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--terminal-rows",
+            "24",
+            "--terminal-columns",
+            "100",
+            "--page-offset",
+            "0",
+            "--page-size",
+            "96",
+            "--include-total",
+            "--frame-generation",
+            "42",
+        ])
+        .write_stdin(b"dgo sl\0\0".as_slice())
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
+    let fields = output
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .map(|field| std::str::from_utf8(field).expect("utf8 completion field"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(fields[0], "42");
+    assert_eq!(fields[1], "1");
+    assert_eq!(fields.len(), 6);
+    assert!(fields[2].ends_with("/Projects/Slash"));
+    assert_eq!(fields[3], "Slash");
+    assert_eq!(fields[4], "DIR");
+    assert!(fields[5].ends_with("/Projects/Slash"));
+}
+
+#[test]
+fn zsh_catalog_page_can_include_command_descriptions_for_preview() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    let cwd = fixture.temp.path().join("filesystem");
+    let output = fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "zsh",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--terminal-rows",
+            "24",
+            "--terminal-columns",
+            "100",
+            "--page-offset",
+            "0",
+            "--page-size",
+            "96",
+            "--include-total",
+            "--include-descriptions",
+            "--frame-generation",
+            "43",
+        ])
+        .write_stdin(b"git co\0\0".as_slice())
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
+    let mut fields = output
+        .split(|byte| *byte == 0)
+        .map(|field| std::str::from_utf8(field).expect("utf8 completion field"))
+        .collect::<Vec<_>>();
+    assert_eq!(fields.pop(), Some(""), "NUL frame must have a terminator");
+
+    assert_eq!(fields[0], "43");
+    let commit = fields[2..]
+        .chunks_exact(5)
+        .find(|candidate| candidate[1].trim_end() == "commit")
+        .expect("git commit candidate");
+    assert_eq!(commit[2], "SUB");
+    assert_eq!(commit[3], "Record changes to the repository");
+    assert_eq!(commit[4], "git commit");
+}
+
+#[test]
+fn description_frame_preserves_an_empty_field_without_shifting_the_tuple() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    let cwd = fixture.temp.path().join("filesystem");
+    let output = fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "zsh",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--terminal-rows",
+            "24",
+            "--terminal-columns",
+            "100",
+            "--page-size",
+            "96",
+            "--include-total",
+            "--include-descriptions",
+        ])
+        .write_stdin(b"cargo ad\0\0".as_slice())
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
+    let mut fields = output.split(|byte| *byte == 0).collect::<Vec<_>>();
+    assert_eq!(
+        fields.pop(),
+        Some(&[][..]),
+        "NUL frame must have a terminator"
+    );
+    let add = fields[1..]
+        .chunks_exact(5)
+        .find(|candidate| {
+            std::str::from_utf8(candidate[1])
+                .expect("utf8 display")
+                .trim_end()
+                == "add"
+        })
+        .expect("cargo add candidate");
+
+    assert_eq!(add[2], b"SUB");
+    assert_eq!(add[3], b"");
+    assert_eq!(add[4], b"cargo add");
+}
+
+#[test]
+fn later_catalog_page_keeps_non_empty_descriptions_aligned() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    let completions = fixture.temp.path().join("config/dirgo/completions");
+    fs::create_dir_all(&completions).expect("completions directory");
+    let children = (0..110)
+        .map(|index| {
+            format!(
+                "[[subcommands]]\nname = \"item-{index:03}\"\ndescription = \"Describe item-{index:03}\"\n"
+            )
+        })
+        .collect::<String>();
+    fs::write(
+        completions.join("bulk.toml"),
+        format!("name = \"bulk\"\n{children}"),
+    )
+    .expect("bulk command spec");
+    let cwd = fixture.temp.path().join("filesystem");
+    let output = fixture
+        .command()
+        .args([
+            "__suggest-complete",
+            "--shell",
+            "zsh",
+            "--cwd",
+            cwd.to_str().expect("utf8 cwd"),
+            "--terminal-rows",
+            "24",
+            "--terminal-columns",
+            "100",
+            "--page-offset",
+            "96",
+            "--page-size",
+            "14",
+            "--include-total",
+            "--include-descriptions",
+        ])
+        .write_stdin(b"bulk item-\0\0".as_slice())
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
+    let mut fields = output
+        .split(|byte| *byte == 0)
+        .map(|field| std::str::from_utf8(field).expect("utf8 completion field"))
+        .collect::<Vec<_>>();
+    assert_eq!(fields.pop(), Some(""), "NUL frame must have a terminator");
+    assert_eq!(fields[0], "110");
+    let page = &fields[1..];
+    assert_eq!(page.len(), 14 * 5);
+    assert_eq!(page[0], "item-096");
+    assert_eq!(page[1].trim_end(), "item-096");
+    assert_eq!(page[2], "SUB");
+    assert_eq!(page[3], "Describe item-096");
+    assert_eq!(page[4], "bulk item-096");
 }
 
 #[test]
@@ -414,7 +693,8 @@ fn disabling_suggestions_stops_an_already_loaded_history_hook_from_recording() {
         response
             .suggestions
             .iter()
-            .all(|suggestion| suggestion.edit.replacement != "cargo publish")
+            .all(|suggestion| suggestion.edit.replacement != "cargo publish"
+                || suggestion.source != SuggestionSource::CommandHistory)
     );
 }
 

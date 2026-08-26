@@ -192,11 +192,24 @@ fn executable_discovery_is_bounded_unique_and_requires_execute_permission() {
     std::fs::write(first.join("dgo-private"), "not executable").expect("plain fixture");
     let path = std::env::join_paths([&first, &second]).expect("PATH");
 
+    let catalog = CommandCatalog::discover(Some(path.as_os_str()));
     assert_eq!(
-        CommandCatalog::discover(Some(path.as_os_str()))
-            .executable_names()
-            .collect::<Vec<_>>(),
+        catalog.executable_names().collect::<Vec<_>>(),
         vec!["dgo-other", "dgo-tool"]
+    );
+    let suggestions = SuggestionEngine::new(SuggestionData {
+        catalog,
+        ..SuggestionData::default()
+    })
+    .suggest(&request(
+        ShellKind::Zsh,
+        temp.path().to_str().expect("utf8 temp path"),
+        "dgo-",
+    ));
+    assert!(
+        suggestions
+            .iter()
+            .all(|suggestion| suggestion.source == SuggestionSource::Executable)
     );
 }
 
@@ -255,6 +268,42 @@ fn bounded_top_k_keeps_only_best_unique_replacements_in_deterministic_order() {
 }
 
 #[test]
+fn catalog_pages_cover_every_ranked_match_without_overlap() {
+    let catalog =
+        CommandCatalog::from_executable_names((0..205).map(|index| format!("slx-{index:03}")));
+    let engine = SuggestionEngine::new(SuggestionData {
+        catalog,
+        ..SuggestionData::default()
+    });
+    let request = request(ShellKind::Zsh, "/work", "slx-");
+
+    let first = engine.suggest_page(&request, 0, 96);
+    let second = engine.suggest_page(&request, 96, 96);
+    let last = engine.suggest_page(&request, 192, 96);
+
+    assert_eq!(first.total, 205);
+    assert_eq!(first.suggestions.len(), 96);
+    assert_eq!(second.total, 205);
+    assert_eq!(second.suggestions.len(), 96);
+    assert_eq!(last.total, 205);
+    assert_eq!(last.suggestions.len(), 13);
+    assert_eq!(first.suggestions[0].display, "slx-000");
+    assert_eq!(second.suggestions[0].display, "slx-096");
+    assert_eq!(last.suggestions[12].display, "slx-204");
+
+    let mut replacements = first
+        .suggestions
+        .iter()
+        .chain(&second.suggestions)
+        .chain(&last.suggestions)
+        .map(|suggestion| suggestion.edit.replacement.as_str())
+        .collect::<Vec<_>>();
+    replacements.sort_unstable();
+    replacements.dedup();
+    assert_eq!(replacements.len(), 205);
+}
+
+#[test]
 fn dirgo_catalog_completes_public_subcommands_and_options() {
     let engine = SuggestionEngine::new(SuggestionData::default());
 
@@ -299,6 +348,76 @@ fn dirgo_catalog_follows_nested_subcommands_and_never_exposes_internal_commands(
 }
 
 #[test]
+fn external_command_catalog_completes_git_and_docker_without_running_them() {
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    for shell in [
+        ShellKind::Zsh,
+        ShellKind::Bash,
+        ShellKind::Fish,
+        ShellKind::PowerShell,
+    ] {
+        let git = engine.suggest(&request(shell, "/work", "git ch"));
+        assert_eq!(git[0].edit.replacement, "git checkout");
+        assert_eq!(git[0].source, SuggestionSource::Subcommand);
+        assert_eq!(
+            git[0].description.as_deref(),
+            Some("Switch branches or restore files")
+        );
+
+        let docker = engine.suggest(&request(shell, "/work", "docker co"));
+        assert!(docker.iter().any(|item| {
+            item.edit.replacement == "docker compose" && item.source == SuggestionSource::Subcommand
+        }));
+
+        let compose = engine.suggest(&request(shell, "/work", "docker compose u"));
+        assert_eq!(compose[0].edit.replacement, "docker compose up");
+        assert_eq!(
+            compose[0].description.as_deref(),
+            Some("Create and start services")
+        );
+    }
+}
+
+#[test]
+fn external_command_catalog_completes_nested_options_and_package_tools() {
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    let cargo = engine.suggest(&request(ShellKind::Zsh, "/work", "cargo b"));
+    assert!(
+        cargo
+            .iter()
+            .any(|item| item.edit.replacement == "cargo build")
+    );
+
+    let git_option = engine.suggest(&request(ShellKind::PowerShell, "/work", "git commit --am"));
+    assert_eq!(git_option[0].edit.replacement, "git commit --amend");
+    assert_eq!(git_option[0].source, SuggestionSource::Option);
+
+    let npm = engine.suggest(&request(ShellKind::Fish, "/work", "npm r"));
+    assert!(npm.iter().any(|item| item.edit.replacement == "npm run"));
+
+    let aws = engine.suggest(&request(ShellKind::Zsh, "/work", "aws s3 s"));
+    assert!(
+        aws.iter()
+            .any(|item| item.edit.replacement == "aws s3 sync")
+    );
+
+    let dotnet = engine.suggest(&request(ShellKind::PowerShell, "/work", "dotnet b"));
+    assert!(
+        dotnet
+            .iter()
+            .any(|item| item.edit.replacement == "dotnet build")
+    );
+
+    let curl = engine.suggest(&request(ShellKind::Bash, "/work", "curl --hea"));
+    assert!(
+        curl.iter()
+            .any(|item| item.edit.replacement == "curl --header")
+    );
+}
+
+#[test]
 fn path_and_history_candidates_are_merged_instead_of_suppressing_each_other() {
     let data = SuggestionData {
         catalog: CommandCatalog::from_executable_names(["git".into(), "gitsome".into()]),
@@ -310,7 +429,7 @@ fn path_and_history_candidates_are_merged_instead_of_suppressing_each_other() {
     assert!(
         suggestions
             .iter()
-            .any(|item| item.source == SuggestionSource::Command)
+            .any(|item| item.source == SuggestionSource::Executable)
     );
     assert!(
         suggestions

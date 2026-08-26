@@ -12,7 +12,14 @@ use super::{
         executable_suggestions, history_suggestions,
     },
     sanitize_suggestion,
+    top_k::compare_best,
 };
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuggestionPage {
+    pub suggestions: Vec<Suggestion>,
+    pub total: usize,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SuggestionData {
@@ -56,6 +63,54 @@ impl SuggestionEngine {
     }
 
     pub fn suggest(&self, request: &SuggestionRequest) -> Vec<Suggestion> {
+        let mut top = TopSuggestions::new(super::visible_result_limit(
+            request.terminal_rows,
+            request.max_results,
+        ));
+        for suggestion in self.candidates(request) {
+            if suggestion.edit.replacement == request.before_cursor {
+                continue;
+            }
+            top.push(suggestion);
+        }
+        top.finish()
+    }
+
+    pub fn suggest_page(
+        &self,
+        request: &SuggestionRequest,
+        offset: usize,
+        page_size: usize,
+    ) -> SuggestionPage {
+        let mut unique = HashMap::<String, Suggestion>::new();
+        for suggestion in self.candidates(request) {
+            if suggestion.edit.replacement == request.before_cursor {
+                continue;
+            }
+            let key = suggestion.edit.replacement.clone();
+            match unique.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    if compare_best(&suggestion, entry.get()).is_gt() {
+                        entry.insert(suggestion);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(suggestion);
+                }
+            }
+        }
+        let mut suggestions = unique.into_values().collect::<Vec<_>>();
+        suggestions.sort_by(|left, right| compare_best(right, left));
+        let total = suggestions.len();
+        let suggestions = suggestions
+            .into_iter()
+            .skip(offset)
+            .take(page_size)
+            .collect();
+        SuggestionPage { suggestions, total }
+    }
+
+    fn candidates(&self, request: &SuggestionRequest) -> Vec<Suggestion> {
         let records = self.prefix_records(request);
         let context = CompletionContext::parse(request.shell, &request.before_cursor);
         let mut candidates = directory_suggestions(request, &self.data, &records);
@@ -63,18 +118,10 @@ impl SuggestionEngine {
         candidates.extend(history_suggestions(request, &self.data.command_history));
         candidates.extend(executable_suggestions(request, &self.data.catalog));
         candidates.extend(super::providers::filesystem_suggestions(request));
-
-        let mut top = TopSuggestions::new(super::visible_result_limit(
-            request.terminal_rows,
-            request.max_results,
-        ));
-        for suggestion in candidates.into_iter().filter_map(sanitize_suggestion) {
-            if suggestion.edit.replacement == request.before_cursor {
-                continue;
-            }
-            top.push(suggestion);
-        }
-        top.finish()
+        candidates
+            .into_iter()
+            .filter_map(sanitize_suggestion)
+            .collect()
     }
 
     fn prefix_records(&self, request: &SuggestionRequest) -> Vec<crate::model::DirectoryRecord> {

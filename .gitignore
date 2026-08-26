@@ -1,6 +1,6 @@
 /target/
-**/bin/
-**/obj/
+/powershell/**/bin/
+/powershell/**/obj/
 /.idea/
 /.vscode/
 .DS_Store
@@ -23,6 +23,8 @@ id_ed25519
 # Local agent instructions and internal working material
 .agents/
 .codex/
+/for_social/
+/command_for_dev.md
 AGENTS.md
 CLAUDE.md
 CONTEXT.md

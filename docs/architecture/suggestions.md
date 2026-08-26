@@ -22,9 +22,9 @@ navigation history, command history, executables, or the filesystem.
 or argument candidates. It may be backed by Dirgo's static index or by the
 interactive shell's registered completion system.
 
-**Live panel**: A bounded list rendered below the editable command line while
-the user types. It is presentation only: selection and insertion remain
-separate from execution.
+**Live panel**: A virtualized list anchored immediately below the editable
+command line while the user types. It is presentation only: selection and
+insertion remain separate from execution.
 
 **Shell adapter**: Integration that translates between a shell's native editing
 API and Dirgo's suggestion protocol.
@@ -60,13 +60,34 @@ navigation history and is used only after explicit opt-in.
 - The panel becomes eligible after the first non-whitespace character and is
   hidden when there are no useful candidates.
 - Input is debounced for 30 milliseconds. A newer buffer snapshot cancels the
-  previous request and stale responses are never rendered.
-- The panel normally shows eight rows, grows to at most twelve rows, shrinks to
-  five rows in a small terminal, and never consumes more than one third of the
-  terminal height.
-- Up and Down move the active row, Tab inserts it, Escape dismisses the panel,
-  and Enter submits only the text already visible in the shell buffer. Enter
-  never accepts an uninserted candidate.
+  previous request and stale responses are never rendered. The snapshot tracks
+  both `LBUFFER` and `RBUFFER`, so moving the cursor without changing text also
+  invalidates the previous result and insertion preserves the suffix.
+- The panel starts with three rows and expands to at most six when the user
+  navigates. It never consumes more than one third of the terminal height.
+  Zsh renders it through `POSTDISPLAY`, so it follows the editable buffer
+  instead of occupying a terminal-bottom status area or covering the prompt.
+- Safe catalog descriptions follow the selected candidate. At 92 columns and
+  above they occupy a muted right-hand preview column without increasing panel
+  height; below that threshold one cell-width-aware, truncated detail line
+  appears beneath the active row when the terminal has at least 18 rows. On
+  shorter terminals the detail is suppressed to preserve the one-third height
+  budget. Source-only placeholders such as `PATH` and `DIR` are suppressed.
+- Up and Down move the active row, Page Up and Page Down move by one viewport,
+  Tab inserts the active row, Escape dismisses the panel, and Enter submits only
+  the text already visible in the shell buffer. Enter never accepts an
+  uninserted candidate.
+- The header reports the visible range and exact result count. The Zsh adapter
+  fetches ranked results in pages of 96, prefetches near the loaded boundary,
+  and renders only the current viewport. Reaching a boundary may synchronously
+  drain the already-started bounded request so queued navigation cannot starve
+  the asynchronous ZLE callback.
+- A watched ZLE file descriptor receives no generation or payload bytes until
+  ranking has completed. The backend builds one frame in memory and publishes
+  its generation, total, page, and optional descriptions together, so a slow
+  request cannot make the editor callback block while waiting for the
+  remainder. Descriptions are requested explicitly by the Zsh adapter, leaving
+  the existing Bash and Fish completion tuple unchanged.
 - Sources are understandable without color: `CMD`, `SUB`, `OPT`, `DIR`, `FILE`,
   `HIST`, and `NAV`.
 - The renderer applies a row-level diff and never redraws an unchanged panel.
@@ -76,29 +97,39 @@ navigation history and is used only after explicit opt-in.
 
 ## Completion catalog
 
-The fast catalog contains executable names from `PATH`, shell builtins,
-aliases, functions, known static subcommands and options, files, directories,
-navigation history, and opted-in command history. Executable directories are
-indexed once and refreshed when their metadata changes. Shell adapters publish
-their session-local builtins, aliases, and functions without persisting the
-user's command buffer.
+The fast catalog contains executable names from `PATH`, Dirgo's own Clap graph,
+a compiled pack of common third-party command trees, optional user TOML specs,
+files, directories, navigation history, and opted-in command history. Root
+commands and aliases use an in-memory index; nested matching streams into the
+bounded top-K collector. Executable discovery is limited to 128 PATH entries,
+4,096 files per entry, and 8,192 unique commands.
 
-The native lane delegates context-aware completion to the registered Zsh,
-Bash, Fish, or PowerShell completion system. Native work is serialized per
-session, cancelled when obsolete, limited to 80 milliseconds, and protected by
-a circuit breaker. Dynamic native results remain in memory; only static
-metadata keyed by provider, executable path, version, and modification time may
-be persisted.
+The compiled pack covers stable command nouns for Git, Docker and Compose,
+Cargo/Rustup, npm/pnpm/Yarn/Bun, kubectl, GitHub CLI, Homebrew, Go, Helm,
+Terraform, Podman, major cloud/build/deployment CLIs, and common system tools.
+User specs are loaded from `completions/*.toml` beside `config.toml`. Loading is
+limited to 64 regular files, 256 KiB per file, eight tree levels, 2,048 nodes
+total, and 256 children or options per node. Unknown fields, control text,
+symlinks, malformed files, and over-limit trees are ignored as optional
+enrichment; they cannot prevent the suggestion worker from starting.
 
-Ranking is streaming and bounded. Providers emit scored candidates into a
-deduplicating top-K collector, so a command with thousands of completions does
-not require sorting or rendering the entire set.
+The shell-native lane remains available through each shell's normal completion
+UI for tools outside the static catalog. Dirgo never invokes arbitrary native
+completion scripts or a tool's `--help` path on the per-keystroke hot path.
+PowerShell predictor requests and Dirgo worker calls are time-bounded; stale
+responses are discarded.
+
+The normal completion path ranks through a streaming, deduplicating top-K
+collector. The Zsh catalog view computes an exact, deterministic ordering,
+returns it in pages of 96, and never renders the entire set. Later pages are
+loaded only as the user approaches them; walking the whole list is possible
+without paying its full shell-memory cost up front.
 
 ## Supported presentation
 
 | Shell | Presentation |
 | --- | --- |
-| Zsh | Full automatic live panel through `zle-line-pre-redraw`; existing widgets and keymaps are preserved |
+| Zsh | Full automatic live panel through `zle-line-pre-redraw`, anchored after the editable buffer with `POSTDISPLAY`; existing widgets and keymaps are preserved |
 | Fish | Built-in live autosuggestion plus its native completion pager; Dirgo enriches candidates without replacing Fish's editor |
 | Bash 4+ | Context-complete explicit list and insertion through Readline; no per-character key rebinding |
 | PowerShell 7+ | `Ctrl+F` insertion; PowerShell 7.4.x gets automatic native PSReadLine `ListView` prediction |
@@ -113,11 +144,12 @@ WSL uses the corresponding Linux shell adapter. Windows PowerShell 5.1 and
 2. It sends a versioned request to a per-session worker. The fast lane returns
    cached local candidates first while the native lane runs under a separate
    deadline.
-3. Providers produce candidates and the engine sanitizes, deduplicates, ranks,
-   and limits them with a bounded top-K collector.
-4. The adapter discards stale responses, updates the live panel only when its
-   model changed, and applies an edit only when the expected buffer suffix
-   still matches.
+3. Providers produce candidates and the engine sanitizes, deduplicates, and
+   ranks them. The normal path uses bounded top-K; a catalog page returns an
+   exact total plus one deterministic slice.
+4. The adapter discards stale responses, prefetches catalog pages near the
+   loaded boundary, updates the live panel only when its model changed, and
+   applies an edit only when the expected buffer suffix still matches.
 5. The shell renders the result and remains solely responsible for submission.
 
 The PowerShell predictor starts its worker before the first request and waits

@@ -1,10 +1,12 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     env,
     io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
+use unicode_width::UnicodeWidthStr;
 
 use clap::Parser;
 
@@ -277,6 +279,11 @@ pub fn run() -> Result<i32> {
         terminal_rows,
         terminal_columns,
         format,
+        page_offset,
+        page_size,
+        include_total,
+        include_descriptions,
+        frame_generation,
     }) = &cli.command
     {
         return hidden_suggest_complete(
@@ -284,9 +291,16 @@ pub fn run() -> Result<i32> {
             &config,
             *shell,
             cwd,
-            *terminal_rows,
-            *terminal_columns,
-            *format,
+            CompletionOutputOptions {
+                terminal_rows: *terminal_rows,
+                terminal_columns: *terminal_columns,
+                format: *format,
+                page_offset: *page_offset,
+                page_size: *page_size,
+                include_total: *include_total,
+                include_descriptions: *include_descriptions,
+                frame_generation: *frame_generation,
+            },
         );
     }
     if let Some(Command::SuggestPick {
@@ -717,14 +731,24 @@ fn shell_suggestion_request(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CompletionOutputOptions {
+    terminal_rows: Option<u16>,
+    terminal_columns: Option<u16>,
+    format: CompletionOutputFormat,
+    page_offset: usize,
+    page_size: Option<u16>,
+    include_total: bool,
+    include_descriptions: bool,
+    frame_generation: Option<u64>,
+}
+
 fn hidden_suggest_complete(
     paths: &AppPaths,
     config: &Config,
     shell: crate::shell::Shell,
     cwd: &Path,
-    terminal_rows: Option<u16>,
-    terminal_columns: Option<u16>,
-    format: CompletionOutputFormat,
+    options: CompletionOutputOptions,
 ) -> Result<i32> {
     if !config.suggestions.enabled {
         return Ok(0);
@@ -734,40 +758,201 @@ fn hidden_suggest_complete(
         crate::suggestions::CompletionContext::parse(shell.suggestion_kind(), &before_cursor);
     let mut request =
         shell_suggestion_request(config, shell, cwd, before_cursor.clone(), after_cursor);
-    request.terminal_rows = terminal_rows;
-    request.terminal_columns = terminal_columns;
+    request.terminal_rows = options.terminal_rows;
+    request.terminal_columns = options.terminal_columns;
     request.presentation = crate::suggestions::SuggestionPresentation::List;
-    let suggestions =
-        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request);
+    let engine = build_suggestion_engine(paths, config, needs_executables(&request))?;
+    let (suggestions, total) = if let Some(page_size) = options.page_size {
+        let page = engine.suggest_page(&request, options.page_offset, usize::from(page_size));
+        (page.suggestions, page.total)
+    } else {
+        let suggestions = engine.suggest(&request);
+        let total = suggestions.len();
+        (suggestions, total)
+    };
     let unchanged_prefix = &before_cursor[..context.replacement_start()];
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
+    let mut frame = Vec::new();
+    if let Some(generation) = options.frame_generation {
+        write!(frame, "{generation}\0")
+            .map_err(|error| DirgoError::io("completion frame", error))?;
+    }
+    if options.include_total {
+        write!(frame, "{total}\0").map_err(|error| DirgoError::io("completion frame", error))?;
+    }
+    let ascii_descriptions =
+        options.include_descriptions && env::var_os("DGO_NO_UNICODE").is_some();
     for suggestion in suggestions {
         let Some(token) = suggestion.edit.replacement.strip_prefix(unchanged_prefix) else {
             continue;
         };
         let label = suggestion_source_label(suggestion.source);
-        match format {
-            CompletionOutputFormat::Nul => output
+        let display = if options.include_descriptions {
+            prepare_preview_display(
+                &suggestion.display,
+                label,
+                options.terminal_columns,
+                ascii_descriptions,
+            )
+        } else {
+            Cow::Borrowed(suggestion.display.as_str())
+        };
+        let description = if options.include_descriptions {
+            suggestion.description.as_deref().map(|description| {
+                prepare_preview_description(
+                    description,
+                    options.terminal_columns,
+                    ascii_descriptions,
+                )
+            })
+        } else {
+            None
+        };
+        match options.format {
+            CompletionOutputFormat::Nul => frame
                 .write_all(token.as_bytes())
-                .and_then(|_| output.write_all(&[0]))
-                .and_then(|_| output.write_all(suggestion.display.as_bytes()))
-                .and_then(|_| output.write_all(&[0]))
-                .and_then(|_| output.write_all(label.as_bytes()))
-                .and_then(|_| output.write_all(&[0]))
-                .and_then(|_| output.write_all(suggestion.edit.replacement.as_bytes()))
-                .and_then(|_| output.write_all(&[0]))
-                .map_err(|error| DirgoError::io("stdout", error))?,
+                .and_then(|_| frame.write_all(&[0]))
+                .and_then(|_| frame.write_all(display.as_bytes()))
+                .and_then(|_| frame.write_all(&[0]))
+                .and_then(|_| frame.write_all(label.as_bytes()))
+                .and_then(|_| frame.write_all(&[0]))
+                .and_then(|_| {
+                    if options.include_descriptions {
+                        frame.write_all(description.as_deref().unwrap_or("").as_bytes())
+                    } else {
+                        Ok(())
+                    }
+                })
+                .and_then(|_| {
+                    if options.include_descriptions {
+                        frame.write_all(&[0])
+                    } else {
+                        Ok(())
+                    }
+                })
+                .and_then(|_| frame.write_all(suggestion.edit.replacement.as_bytes()))
+                .and_then(|_| frame.write_all(&[0]))
+                .map_err(|error| DirgoError::io("completion frame", error))?,
             CompletionOutputFormat::Lines => {
-                writeln!(output, "{token}\t{label}  {}", suggestion.display)
-                    .map_err(|error| DirgoError::io("stdout", error))?
+                writeln!(frame, "{token}\t{label}  {}", suggestion.display)
+                    .map_err(|error| DirgoError::io("completion frame", error))?
             }
         }
     }
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    output
+        .write_all(&frame)
+        .map_err(|error| DirgoError::io("stdout", error))?;
     output
         .flush()
         .map_err(|error| DirgoError::io("stdout", error))?;
     Ok(0)
+}
+
+fn prepare_preview_description<'a>(
+    description: &'a str,
+    terminal_columns: Option<u16>,
+    ascii: bool,
+) -> Cow<'a, str> {
+    let Some(columns) = terminal_columns.map(usize::from) else {
+        return Cow::Borrowed(description);
+    };
+    let ellipsis = if ascii { "..." } else { "…" };
+    if columns < 92 {
+        let width = columns.saturating_sub(12).max(8);
+        return truncate_to_cell_width(description, width, ellipsis);
+    }
+
+    let list_width = if columns >= 112 { 44 } else { 38 };
+    let width = columns.saturating_sub(list_width + 11).max(8);
+    if UnicodeWidthStr::width(description) <= width {
+        return Cow::Borrowed(description);
+    }
+
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in description.split_whitespace() {
+        let word = truncate_to_cell_width(word, width, ellipsis);
+        let joined_width = if line.is_empty() {
+            UnicodeWidthStr::width(word.as_ref())
+        } else {
+            UnicodeWidthStr::width(line.as_str()) + 1 + UnicodeWidthStr::width(word.as_ref())
+        };
+        if !line.is_empty() && joined_width > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    Cow::Owned(lines.join("\n"))
+}
+
+fn prepare_preview_display<'a>(
+    display: &'a str,
+    label: &str,
+    terminal_columns: Option<u16>,
+    ascii: bool,
+) -> Cow<'a, str> {
+    let Some(columns) = terminal_columns.map(usize::from) else {
+        return Cow::Borrowed(display);
+    };
+    let ellipsis = if ascii { "..." } else { "…" };
+    let wide = columns >= 92;
+    let available = if wide {
+        let list_width: usize = if columns >= 112 { 44 } else { 38 };
+        list_width
+            .saturating_sub(preview_kind(label).len() + 7)
+            .max(8)
+    } else {
+        columns.saturating_sub(22).max(8)
+    };
+    let truncated = truncate_to_cell_width(display, available, ellipsis);
+    if !wide {
+        return truncated;
+    }
+    let padding = available.saturating_sub(UnicodeWidthStr::width(truncated.as_ref()));
+    if padding == 0 {
+        truncated
+    } else {
+        Cow::Owned(format!("{}{:<padding$}", truncated, ""))
+    }
+}
+
+fn preview_kind(label: &str) -> &'static str {
+    match label {
+        "DIR" => "directory",
+        "NAV" => "recent",
+        "HIST" => "history",
+        "PATH" => "executable",
+        "CMD" => "command",
+        "SUB" => "subcommand",
+        "OPT" => "option",
+        "BLT" => "builtin",
+        "ALS" => "alias",
+        "FILE" => "file",
+        _ => "",
+    }
+}
+
+fn truncate_to_cell_width<'a>(value: &'a str, width: usize, ellipsis: &str) -> Cow<'a, str> {
+    if UnicodeWidthStr::width(value) <= width {
+        return Cow::Borrowed(value);
+    }
+    let target = width.saturating_sub(UnicodeWidthStr::width(ellipsis));
+    let mut end = 0;
+    for (index, character) in value.char_indices() {
+        let candidate_end = index + character.len_utf8();
+        if UnicodeWidthStr::width(&value[..candidate_end]) > target {
+            break;
+        }
+        end = candidate_end;
+    }
+    Cow::Owned(format!("{}{}", &value[..end], ellipsis))
 }
 
 fn suggestion_source_label(source: crate::suggestions::SuggestionSource) -> &'static str {
@@ -837,16 +1022,20 @@ fn load_suggestion_data(
         unix_now(),
         &config.suggestions,
     )?;
+    let mut catalog = if include_executables {
+        CommandCatalog::discover(env::var_os("PATH").as_deref())
+    } else {
+        CommandCatalog::default()
+    };
+    if let Some(config_dir) = paths.config_file.parent() {
+        catalog = catalog.with_user_specs(&config_dir.join("completions"));
+    }
     Ok(SuggestionData {
         records,
         bookmarks,
         navigation_history,
         ranking: config.ranking.clone(),
-        catalog: if include_executables {
-            CommandCatalog::discover(env::var_os("PATH").as_deref())
-        } else {
-            CommandCatalog::default()
-        },
+        catalog,
         command_history,
     })
 }
@@ -1807,5 +1996,44 @@ fn format_age(seconds: u64) -> String {
         format!("{}h {}m", seconds / 3600, seconds % 3600 / 60)
     } else {
         format!("{}d {}h", seconds / 86400, seconds % 86400 / 3600)
+    }
+}
+
+#[cfg(test)]
+mod preview_description_tests {
+    use super::{prepare_preview_description, prepare_preview_display};
+    use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn wide_preview_wraps_by_terminal_cells() {
+        let prepared = prepare_preview_description(
+            "部署生产环境 并验证所有服务 不会超出终端边界",
+            Some(92),
+            false,
+        );
+
+        assert!(prepared.contains('\n'));
+        assert!(
+            prepared
+                .lines()
+                .all(|line| UnicodeWidthStr::width(line) <= 43)
+        );
+    }
+
+    #[test]
+    fn narrow_ascii_preview_uses_cell_safe_ascii_ellipsis() {
+        let description = "界".repeat(50);
+        let prepared = prepare_preview_description(&description, Some(82), true);
+
+        assert!(prepared.ends_with("..."));
+        assert!(UnicodeWidthStr::width(prepared.as_ref()) <= 70);
+    }
+
+    #[test]
+    fn wide_preview_pads_unicode_command_names_by_terminal_cells() {
+        let prepared = prepare_preview_display("部署服务部署服务", "SUB", Some(92), false);
+
+        assert_eq!(UnicodeWidthStr::width(prepared.as_ref()), 21);
+        assert!(prepared.ends_with(' '));
     }
 }

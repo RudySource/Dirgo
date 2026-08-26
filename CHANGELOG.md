@@ -4,7 +4,7 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-08-25
+## [0.4.0] - 2026-08-26
 
 ### Added
 

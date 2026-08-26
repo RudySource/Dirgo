@@ -293,6 +293,16 @@ pub enum Command {
         terminal_columns: Option<u16>,
         #[arg(long, value_enum, default_value_t = CompletionOutputFormat::Nul)]
         format: CompletionOutputFormat,
+        #[arg(long, hide = true, default_value_t = 0)]
+        page_offset: usize,
+        #[arg(long, hide = true, value_parser = clap::value_parser!(u16).range(1..=96))]
+        page_size: Option<u16>,
+        #[arg(long, hide = true, requires = "page_size")]
+        include_total: bool,
+        #[arg(long, hide = true)]
+        include_descriptions: bool,
+        #[arg(long, hide = true, requires = "include_total")]
+        frame_generation: Option<u64>,
     },
     #[command(name = "__suggest-pick", hide = true)]
     SuggestPick {

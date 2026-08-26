@@ -66,11 +66,31 @@ fn suggestions(c: &mut Criterion) {
     });
     let command_request = SuggestionRequest {
         before_cursor: "slas".into(),
-        ..request
+        ..request.clone()
     };
     c.bench_with_input(
         BenchmarkId::new("warm_prefix", "8192_path_commands"),
         &command_request,
+        |bencher, request| bencher.iter(|| command_engine.suggest(request)),
+    );
+
+    let catalog_request = SuggestionRequest {
+        before_cursor: "command-".into(),
+        ..request.clone()
+    };
+    c.bench_with_input(
+        BenchmarkId::new("catalog_page", "8192_path_commands"),
+        &catalog_request,
+        |bencher, request| bencher.iter(|| command_engine.suggest_page(request, 192, 96)),
+    );
+
+    let nested_request = SuggestionRequest {
+        before_cursor: "docker compose u".into(),
+        ..request
+    };
+    c.bench_with_input(
+        BenchmarkId::new("warm_prefix", "nested_command_spec"),
+        &nested_request,
         |bencher, request| bencher.iter(|| command_engine.suggest(request)),
     );
 }

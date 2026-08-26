@@ -52,7 +52,7 @@ impl TopSuggestions {
     }
 }
 
-fn compare_best(left: &Suggestion, right: &Suggestion) -> Ordering {
+pub(super) fn compare_best(left: &Suggestion, right: &Suggestion) -> Ordering {
     left.score
         .total_cmp(&right.score)
         .then_with(|| right.display.cmp(&left.display))

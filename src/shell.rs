@@ -106,7 +106,7 @@ function dgo() {
 }
 
 if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
-  autoload -Uz add-zle-hook-widget compinit 2>/dev/null
+  autoload -Uz add-zle-hook-widget compinit is-at-least 2>/dev/null
   (( $+functions[compdef] )) || compinit -C
   if command dgo __suggest-native-enabled >/dev/null 2>&1 && (( ! $+functions[_dgo] )); then
     source <(command dgo completions zsh)
@@ -121,20 +121,37 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
 
   typeset -g _DGO_LIVE_GENERATION=0
   typeset -g _DGO_LIVE_FD=-1
+  typeset -g _DGO_LIVE_LOAD_FD=-1
+  typeset -g _DGO_LIVE_EXPAND_FD=-1
+  typeset -g _DGO_LIVE_EXPAND_SECONDS='0.140'
+  typeset -g _DGO_LIVE_EXPANDED=0
+  typeset -g _DGO_LIVE_CAN_HIGHLIGHT=0
+  is-at-least 5.9 && _DGO_LIVE_CAN_HIGHLIGHT=1
+  typeset -g _DGO_LIVE_POSTDISPLAY=''
   typeset -g _DGO_LIVE_SNAPSHOT=''
+  typeset -g _DGO_LIVE_SNAPSHOT_BEFORE=''
+  typeset -g _DGO_LIVE_SNAPSHOT_AFTER=''
   typeset -g _DGO_LIVE_LAST_BUFFER=''
+  typeset -g _DGO_LIVE_LAST_CURSOR=-1
   typeset -g _DGO_LIVE_LAST_LINES=0
   typeset -g _DGO_LIVE_LAST_COLUMNS=0
   typeset -g _DGO_LIVE_GUARD=0
   typeset -g _DGO_LIVE_SELECTED=1
+  typeset -g _DGO_LIVE_TOTAL=0
+  typeset -g _DGO_LIVE_PAGE_SIZE=96
+  typeset -g _DGO_LIVE_VISIBLE=3
+  typeset -g _DGO_LIVE_LOADING=0
   typeset -g _DGO_LIVE_BASE_KEYMAP=''
   typeset -g _DGO_LIVE_TAB_WIDGET=''
   typeset -g _DGO_LIVE_UP_WIDGET=''
   typeset -g _DGO_LIVE_DOWN_WIDGET=''
   typeset -g _DGO_LIVE_ESC_WIDGET=''
+  typeset -g _DGO_LIVE_PAGE_UP_WIDGET=''
+  typeset -g _DGO_LIVE_PAGE_DOWN_WIDGET=''
   typeset -ga _DGO_LIVE_VALUES=()
   typeset -ga _DGO_LIVE_DISPLAYS=()
   typeset -ga _DGO_LIVE_LABELS=()
+  typeset -ga _DGO_LIVE_DESCRIPTIONS=()
   typeset -ga _DGO_LIVE_REPLACEMENTS=()
 
   function _dgo_live_cancel_timer() {
@@ -145,76 +162,344 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     fi
   }
 
-  function _dgo_live_ready() {
-    local fd="$1" generation='' value display label replacement
+  function _dgo_live_cancel_loader() {
+    if (( _DGO_LIVE_LOAD_FD >= 0 )); then
+      zle -F "$_DGO_LIVE_LOAD_FD" 2>/dev/null
+      exec {_DGO_LIVE_LOAD_FD}<&-
+      _DGO_LIVE_LOAD_FD=-1
+    fi
+    _DGO_LIVE_LOADING=0
+  }
+
+  function _dgo_live_cancel_expand() {
+    if (( _DGO_LIVE_EXPAND_FD >= 0 )); then
+      zle -F "$_DGO_LIVE_EXPAND_FD" 2>/dev/null
+      exec {_DGO_LIVE_EXPAND_FD}<&-
+      _DGO_LIVE_EXPAND_FD=-1
+    fi
+  }
+
+  function _dgo_live_clear_display() {
+    local escaped_owned
+    if [[ -n "$_DGO_LIVE_POSTDISPLAY" &&
+          "$POSTDISPLAY" == *"$_DGO_LIVE_POSTDISPLAY"* ]]; then
+      escaped_owned="${(b)_DGO_LIVE_POSTDISPLAY}"
+      POSTDISPLAY="${POSTDISPLAY/${escaped_owned}/}"
+    fi
+    _DGO_LIVE_POSTDISPLAY=''
+    if (( _DGO_LIVE_CAN_HIGHLIGHT )); then
+      region_highlight=( "${(@)region_highlight:#*memo=dirgo-live}" )
+    fi
+  }
+
+  function _dgo_live_schedule_expand() {
+    (( ${#_DGO_LIVE_VALUES} > 3 )) || return
+    local generation=$_DGO_LIVE_GENERATION
+    _dgo_live_cancel_expand
+    exec {_DGO_LIVE_EXPAND_FD}< <(
+      sleep "$_DGO_LIVE_EXPAND_SECONDS"
+      print -rn -- "$generation"$'\0' 2>/dev/null
+    )
+    zle -F -w "$_DGO_LIVE_EXPAND_FD" _dgo_live_expand_ready
+  }
+
+  function _dgo_live_expand_ready() {
+    local fd="$1" generation=''
     zle -F "$fd" 2>/dev/null
     IFS= read -r -d $'\0' generation <&$fd
-    _DGO_LIVE_VALUES=()
-    _DGO_LIVE_DISPLAYS=()
-    _DGO_LIVE_LABELS=()
-    _DGO_LIVE_REPLACEMENTS=()
+    exec {fd}<&-
+    [[ "$fd" == "$_DGO_LIVE_EXPAND_FD" ]] && _DGO_LIVE_EXPAND_FD=-1
+    (( generation == _DGO_LIVE_GENERATION )) || return
+    [[ "$LBUFFER" == "$_DGO_LIVE_SNAPSHOT_BEFORE" &&
+       "$RBUFFER" == "$_DGO_LIVE_SNAPSHOT_AFTER" ]] || return
+    (( _DGO_LIVE_EXPANDED )) && return
+    _DGO_LIVE_EXPANDED=1
+    _DGO_LIVE_GUARD=1
+    _dgo_live_render
+    _DGO_LIVE_GUARD=0
+  }
+
+  function _dgo_live_ready() {
+    local fd="$1" generation='' total='' value display label description replacement
+    local -a values=() displays=() labels=() descriptions=() replacements=()
+    zle -F "$fd" 2>/dev/null
+    IFS= read -r -d $'\0' generation <&$fd
+    IFS= read -r -d $'\0' total <&$fd
     while IFS= read -r -d $'\0' value <&$fd &&
           IFS= read -r -d $'\0' display <&$fd &&
           IFS= read -r -d $'\0' label <&$fd &&
+          IFS= read -r -d $'\0' description <&$fd &&
           IFS= read -r -d $'\0' replacement <&$fd; do
-      _DGO_LIVE_VALUES+=("$value")
-      _DGO_LIVE_DISPLAYS+=("$display")
-      _DGO_LIVE_LABELS+=("$label")
-      _DGO_LIVE_REPLACEMENTS+=("$replacement")
+      values+=("$value")
+      displays+=("$display")
+      labels+=("$label")
+      descriptions+=("$description")
+      replacements+=("$replacement")
     done
     exec {fd}<&-
     [[ "$fd" == "$_DGO_LIVE_FD" ]] && _DGO_LIVE_FD=-1
     (( generation == _DGO_LIVE_GENERATION )) || return
-    [[ "$BUFFER" == "$_DGO_LIVE_SNAPSHOT" ]] || return
+    [[ "$LBUFFER" == "$_DGO_LIVE_SNAPSHOT_BEFORE" &&
+       "$RBUFFER" == "$_DGO_LIVE_SNAPSHOT_AFTER" ]] || return
     [[ -n "${BUFFER//[[:space:]]/}" ]] || return
+    _DGO_LIVE_VALUES=( "${(@)values}" )
+    _DGO_LIVE_DISPLAYS=( "${(@)displays}" )
+    _DGO_LIVE_LABELS=( "${(@)labels}" )
+    _DGO_LIVE_DESCRIPTIONS=( "${(@)descriptions}" )
+    _DGO_LIVE_REPLACEMENTS=( "${(@)replacements}" )
+    if [[ "$total" == <-> ]]; then
+      _DGO_LIVE_TOTAL=$total
+    else
+      _DGO_LIVE_TOTAL=${#_DGO_LIVE_VALUES}
+    fi
     if (( ${#_DGO_LIVE_VALUES} == 0 )); then
       _dgo_live_dismiss
       return
     fi
     _DGO_LIVE_LAST_BUFFER="$BUFFER"
+    _DGO_LIVE_LAST_CURSOR=$CURSOR
     _DGO_LIVE_LAST_LINES=$LINES
     _DGO_LIVE_LAST_COLUMNS=$COLUMNS
     _DGO_LIVE_SELECTED=1
+    _DGO_LIVE_EXPANDED=0
     _DGO_LIVE_GUARD=1
     if [[ -z "$_DGO_LIVE_BASE_KEYMAP" ]]; then
       _DGO_LIVE_BASE_KEYMAP="$KEYMAP"
       _dgo_live_install_keys
     fi
     _dgo_live_render
+    _dgo_live_schedule_expand
     _DGO_LIVE_GUARD=0
   }
 
+  function _dgo_live_maybe_load_more() {
+    local -i loaded=${#_DGO_LIVE_VALUES}
+    (( loaded < _DGO_LIVE_TOTAL && !_DGO_LIVE_LOADING )) || return 0
+    (( _DGO_LIVE_SELECTED + 24 >= loaded )) || return 0
+    local generation=$_DGO_LIVE_GENERATION before="$_DGO_LIVE_SNAPSHOT_BEFORE"
+    local after="$_DGO_LIVE_SNAPSHOT_AFTER" cwd="$PWD" rows=$LINES columns=$COLUMNS offset=$loaded
+    _DGO_LIVE_LOADING=1
+    exec {_DGO_LIVE_LOAD_FD}< <(
+      setopt localoptions nobgnice
+      printf '%s\0%s\0' "$before" "$after" |
+        command dgo __suggest-complete --shell zsh --cwd "$cwd" \
+          --terminal-rows "$rows" --terminal-columns "$columns" \
+          --page-offset "$offset" --page-size "$_DGO_LIVE_PAGE_SIZE" \
+          --include-total --include-descriptions --frame-generation "$generation" 2>/dev/null &
+      local completion_pid=$!
+      ( sleep "$_DGO_LIVE_TIMEOUT_SECONDS"; kill -TERM "$completion_pid" 2>/dev/null ) &
+      local timeout_pid=$!
+      wait "$completion_pid" 2>/dev/null
+      kill -TERM "$timeout_pid" 2>/dev/null
+    )
+    zle -F -w "$_DGO_LIVE_LOAD_FD" _dgo_live_load_ready
+    return 0
+  }
+
+  function _dgo_live_load_ready() {
+    local fd="$1" generation='' total='' value display label description replacement
+    local -a values=() displays=() labels=() descriptions=() replacements=()
+    zle -F "$fd" 2>/dev/null
+    IFS= read -r -d $'\0' generation <&$fd
+    IFS= read -r -d $'\0' total <&$fd
+    while IFS= read -r -d $'\0' value <&$fd &&
+          IFS= read -r -d $'\0' display <&$fd &&
+          IFS= read -r -d $'\0' label <&$fd &&
+          IFS= read -r -d $'\0' description <&$fd &&
+          IFS= read -r -d $'\0' replacement <&$fd; do
+      values+=("$value")
+      displays+=("$display")
+      labels+=("$label")
+      descriptions+=("$description")
+      replacements+=("$replacement")
+    done
+    exec {fd}<&-
+    [[ "$fd" == "$_DGO_LIVE_LOAD_FD" ]] && _DGO_LIVE_LOAD_FD=-1
+    _DGO_LIVE_LOADING=0
+    (( generation == _DGO_LIVE_GENERATION )) || return
+    [[ "$LBUFFER" == "$_DGO_LIVE_SNAPSHOT_BEFORE" &&
+       "$RBUFFER" == "$_DGO_LIVE_SNAPSHOT_AFTER" ]] || return
+    (( ${#values} > 0 )) || return
+    _DGO_LIVE_VALUES+=( "${(@)values}" )
+    _DGO_LIVE_DISPLAYS+=( "${(@)displays}" )
+    _DGO_LIVE_LABELS+=( "${(@)labels}" )
+    _DGO_LIVE_DESCRIPTIONS+=( "${(@)descriptions}" )
+    _DGO_LIVE_REPLACEMENTS+=( "${(@)replacements}" )
+    [[ "$total" == <-> ]] && _DGO_LIVE_TOTAL=$total
+    _dgo_live_render
+    _dgo_live_maybe_load_more
+    return 0
+  }
+
+  function _dgo_live_wrap_preview() {
+    local text="$1"
+    local -i limit=$3
+    _DGO_LIVE_PREVIEW_LINES=()
+    (( limit > 0 )) || return 0
+    _DGO_LIVE_PREVIEW_LINES=( "${(@f)text}" )
+    (( ${#_DGO_LIVE_PREVIEW_LINES} > limit )) &&
+      _DGO_LIVE_PREVIEW_LINES=( "${_DGO_LIVE_PREVIEW_LINES[@]:0:$limit}" )
+    return 0
+  }
+
   function _dgo_live_render() {
-    local panel='Dirgo · suggestions' index marker display ellipsis='…' footer available
+    setopt localoptions extendedglob
+    local panel header header_left padded_header row left_row padded_left base_postdisplay index marker display kind
+    local description preview_line ellipsis='…' separator='·' divider='│' footer available
+    local -a highlight_starts=() highlight_ends=() highlight_styles=()
+    local -a _DGO_LIVE_PREVIEW_LINES=()
+    local -i total=$_DGO_LIVE_TOTAL visible=3 loaded=${#_DGO_LIVE_VALUES} start=1 end row_start metadata_start
+    local -i wide_preview=0 list_width=0 preview_width=0 preview_row=0
+    local -i show_detail=0 panel_budget=$(( LINES / 3 )) max_visible
+    local -i highlight_index highlight_base use_highlight=$_DGO_LIVE_CAN_HIGHLIGHT
     if [[ -n ${DGO_NO_UNICODE:-} ]]; then
-      panel='Dirgo suggestions'
       ellipsis='...'
+      separator='|'
+      divider='|'
     fi
-    available=$(( COLUMNS > 18 ? COLUMNS - 10 : 8 ))
-    for (( index = 1; index <= ${#_DGO_LIVE_VALUES}; index++ )); do
+    [[ -n ${NO_COLOR:-} || -n ${DGO_NO_COLOR:-} || -n ${DGO_NO_UNICODE:-} || $TERM == dumb ]] && use_highlight=0
+    description="${_DGO_LIVE_DESCRIPTIONS[_DGO_LIVE_SELECTED]:-}"
+    case "$description" in
+      ''|DIR|NAV|HIST|PATH|FILE) description='' ;;
+    esac
+    if [[ -n "$description" ]] && (( COLUMNS >= 92 )); then
+      wide_preview=1
+      list_width=38
+      (( COLUMNS >= 112 )) && list_width=44
+      preview_width=$(( COLUMNS - list_width - 11 ))
+    fi
+    (( !wide_preview && LINES >= 18 && ${#description} > 0 )) && show_detail=1
+    if (( _DGO_LIVE_EXPANDED )); then
+      visible=$(( LINES / 4 ))
+      (( visible < 3 )) && visible=3
+      (( visible > 6 )) && visible=6
+    fi
+    max_visible=$(( panel_budget - 2 - show_detail ))
+    (( max_visible < 3 )) && max_visible=3
+    (( visible > max_visible )) && visible=$max_visible
+    _DGO_LIVE_VISIBLE=$visible
+    if (( total > visible && _DGO_LIVE_SELECTED > visible )); then
+      start=$(( _DGO_LIVE_SELECTED - visible + 1 ))
+    fi
+    end=$(( start + visible - 1 ))
+    (( end > loaded )) && end=$loaded
+    (( wide_preview )) &&
+      _dgo_live_wrap_preview "$description" "$preview_width" "$(( end - start + 1 ))"
+    available=$(( COLUMNS > 30 ? COLUMNS - 22 : 8 ))
+    if [[ -n ${DGO_NO_UNICODE:-} ]]; then
+      header_left="Dirgo suggestions  -  ${start}-${end} / ${total}"
+    else
+      header_left="Dirgo suggestions  ·  ${start}–${end} / ${total}"
+    fi
+    if (( wide_preview )); then
+      printf -v padded_header '%-*s' "$list_width" "$header_left"
+      header="    ${padded_header} ${divider} details"
+    else
+      header="    ${header_left}"
+    fi
+    panel="$header"
+    highlight_starts+=(1 5)
+    highlight_ends+=($(( 1 + ${#header} )) 10)
+    highlight_styles+=('fg=8' 'fg=cyan,bold')
+    for (( index = start; index <= end; index++ )); do
       marker=' '
-      (( index == _DGO_LIVE_SELECTED )) && marker='›'
-      [[ -n ${DGO_NO_UNICODE:-} && index == _DGO_LIVE_SELECTED ]] && marker='>'
+      if (( index == _DGO_LIVE_SELECTED )); then
+        marker='›'
+        [[ -n ${DGO_NO_UNICODE:-} ]] && marker='>'
+      fi
       display="${_DGO_LIVE_DISPLAYS[index]}"
-      if (( ${#display} > available )); then
+      case "${_DGO_LIVE_LABELS[index]}" in
+        DIR) kind='directory' ;;
+        NAV) kind='recent' ;;
+        HIST) kind='history' ;;
+        PATH) kind='executable' ;;
+        CMD) kind='command' ;;
+        SUB) kind='subcommand' ;;
+        OPT) kind='option' ;;
+        BLT) kind='builtin' ;;
+        ALS) kind='alias' ;;
+        FILE) kind='file' ;;
+        *) kind="${(L)_DGO_LIVE_LABELS[index]}" ;;
+      esac
+      if (( !wide_preview )); then
+        display="${display%%[[:space:]]##}"
+      fi
+      if (( !wide_preview && ${#display} > available )); then
         if [[ "$ellipsis" == '...' ]]; then
           display="${display[1,$(( available - 3 ))]}${ellipsis}"
         else
           display="${display[1,$(( available - 1 ))]}${ellipsis}"
         fi
       fi
-      panel+=$'\n'"$marker  ${_DGO_LIVE_LABELS[index]}  ${display}"
+      row_start=$(( ${#panel} + 2 ))
+      left_row="${marker}  ${display}  ${separator} ${kind}"
+      if (( wide_preview )); then
+        padded_left="$left_row"
+        preview_row=$(( index - start + 1 ))
+        preview_line="${_DGO_LIVE_PREVIEW_LINES[preview_row]:-}"
+        row="    ${padded_left} ${divider} ${preview_line}"
+      else
+        row="    ${left_row}"
+      fi
+      panel+=$'\n'"$row"
+      metadata_start=$(( row_start + 7 + ${#display} + 2 ))
+      highlight_starts+=($metadata_start)
+      highlight_ends+=($(( row_start + ${#row} )))
+      highlight_styles+=('fg=8')
+      if (( index == _DGO_LIVE_SELECTED )); then
+        highlight_starts+=($(( row_start + 4 )) $(( row_start + 7 )))
+        highlight_ends+=($(( row_start + 5 )) $(( row_start + 7 + ${#display} )))
+        highlight_styles+=('fg=cyan,bold' 'bold')
+      fi
     done
-    if (( COLUMNS >= 54 )); then
-      footer='↑↓ select   Tab insert   Esc dismiss'
-    elif (( COLUMNS >= 34 )); then
-      footer='↑↓ choose · Tab insert · Esc close'
-    else
-      footer='Tab insert · Esc close'
+    if (( show_detail )) && [[ -n "$description" ]]; then
+      available=$(( COLUMNS > 16 ? COLUMNS - 12 : 8 ))
+      if (( ${#description} > available )); then
+        if [[ "$ellipsis" == '...' ]]; then
+          description="${description[1,$(( available - 3 ))]}${ellipsis}"
+        else
+          description="${description[1,$(( available - 1 ))]}${ellipsis}"
+        fi
+      fi
+      row_start=$(( ${#panel} + 2 ))
+      if [[ -n ${DGO_NO_UNICODE:-} ]]; then
+        row="       - ${description}"
+      else
+        row="       ↳ ${description}"
+      fi
+      panel+=$'\n'"$row"
+      highlight_starts+=($row_start)
+      highlight_ends+=($(( row_start + ${#row} )))
+      highlight_styles+=('fg=8')
     fi
-    [[ -n ${DGO_NO_UNICODE:-} ]] && footer='Tab insert | Esc close'
-    panel+=$'\n'"$footer"
-    zle -M "$panel"
+    if (( COLUMNS >= 54 )); then
+      footer='↑↓ move   PgUp/PgDn page   Tab insert   Esc close'
+    elif (( COLUMNS >= 34 )); then
+      footer='↑↓ · PgUp/PgDn · Tab · Esc'
+    else
+      footer='↑↓ · Tab · Esc'
+    fi
+    [[ -n ${DGO_NO_UNICODE:-} ]] && footer='Up/Down | PgUp/PgDn | Tab | Esc'
+    row_start=$(( ${#panel} + 2 ))
+    row="    ${footer}"
+    panel+=$'\n'"$row"
+    highlight_starts+=($row_start)
+    highlight_ends+=($(( row_start + ${#row} )))
+    highlight_styles+=('fg=8')
+
+    _dgo_live_clear_display
+    base_postdisplay="$POSTDISPLAY"
+    _DGO_LIVE_POSTDISPLAY=$'\n'"$panel"
+    POSTDISPLAY="${base_postdisplay}${_DGO_LIVE_POSTDISPLAY}"
+    if (( use_highlight )); then
+      highlight_base=$(( ${#PREDISPLAY} + ${#BUFFER} + ${#base_postdisplay} ))
+      for (( highlight_index = 1; highlight_index <= ${#highlight_starts}; highlight_index++ )); do
+        region_highlight+=(
+          "P$(( highlight_base + highlight_starts[highlight_index] )) $(( highlight_base + highlight_ends[highlight_index] )) ${highlight_styles[highlight_index]} memo=dirgo-live"
+        )
+      done
+    fi
+    zle -R
   }
 
   function _dgo_live_install_keys() {
@@ -227,10 +512,16 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     _DGO_LIVE_DOWN_WIDGET="${binding[-1]:-}"
     binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' 2>/dev/null)"})
     _DGO_LIVE_ESC_WIDGET="${binding[-1]:-}"
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[5~' 2>/dev/null)"})
+    _DGO_LIVE_PAGE_UP_WIDGET="${binding[-1]:-}"
+    binding=(${(z)"$(bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[6~' 2>/dev/null)"})
+    _DGO_LIVE_PAGE_DOWN_WIDGET="${binding[-1]:-}"
     [[ -n "$_DGO_LIVE_TAB_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^I' _dgo_live_accept
     [[ -n "$_DGO_LIVE_UP_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[A' _dgo_live_up
     [[ -n "$_DGO_LIVE_DOWN_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[B' _dgo_live_down
     [[ -n "$_DGO_LIVE_ESC_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' _dgo_live_dismiss
+    bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[5~' _dgo_live_page_up
+    bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[6~' _dgo_live_page_down
   }
 
   function _dgo_live_restore_keys() {
@@ -239,10 +530,34 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     [[ -n "$_DGO_LIVE_UP_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[A' "$_DGO_LIVE_UP_WIDGET"
     [[ -n "$_DGO_LIVE_DOWN_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[B' "$_DGO_LIVE_DOWN_WIDGET"
     [[ -n "$_DGO_LIVE_ESC_WIDGET" ]] && bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[' "$_DGO_LIVE_ESC_WIDGET"
+    if [[ -n "$_DGO_LIVE_PAGE_UP_WIDGET" ]]; then
+      bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[5~' "$_DGO_LIVE_PAGE_UP_WIDGET"
+    else
+      bindkey -M "$_DGO_LIVE_BASE_KEYMAP" -r '^[[5~' 2>/dev/null
+    fi
+    if [[ -n "$_DGO_LIVE_PAGE_DOWN_WIDGET" ]]; then
+      bindkey -M "$_DGO_LIVE_BASE_KEYMAP" '^[[6~' "$_DGO_LIVE_PAGE_DOWN_WIDGET"
+    else
+      bindkey -M "$_DGO_LIVE_BASE_KEYMAP" -r '^[[6~' 2>/dev/null
+    fi
     _DGO_LIVE_TAB_WIDGET=''
     _DGO_LIVE_UP_WIDGET=''
     _DGO_LIVE_DOWN_WIDGET=''
     _DGO_LIVE_ESC_WIDGET=''
+    _DGO_LIVE_PAGE_UP_WIDGET=''
+    _DGO_LIVE_PAGE_DOWN_WIDGET=''
+  }
+
+  function _dgo_live_retire_model() {
+    _dgo_live_restore_keys
+    _DGO_LIVE_BASE_KEYMAP=''
+    _DGO_LIVE_VALUES=()
+    _DGO_LIVE_DISPLAYS=()
+    _DGO_LIVE_LABELS=()
+    _DGO_LIVE_DESCRIPTIONS=()
+    _DGO_LIVE_REPLACEMENTS=()
+    _DGO_LIVE_TOTAL=0
+    _dgo_live_clear_display
   }
 
   function _dgo_live_pre_redraw() {
@@ -253,30 +568,44 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     fi
     if [[ -z "${BUFFER//[[:space:]]/}" ]]; then
       _dgo_live_cancel_timer
+      _dgo_live_cancel_expand
+      _dgo_live_cancel_loader
       _DGO_LIVE_LAST_BUFFER=''
+      _DGO_LIVE_LAST_CURSOR=-1
+      _dgo_live_retire_model
       zle -R -c
       return
     fi
     if [[ "$BUFFER" == "$_DGO_LIVE_LAST_BUFFER" &&
+          $CURSOR == $_DGO_LIVE_LAST_CURSOR &&
           $LINES == $_DGO_LIVE_LAST_LINES &&
           $COLUMNS == $_DGO_LIVE_LAST_COLUMNS ]]; then
       return
     fi
-    if (( _DGO_LIVE_FD >= 0 )) && [[ "$BUFFER" == "$_DGO_LIVE_SNAPSHOT" ]]; then
+    if (( _DGO_LIVE_FD >= 0 )) &&
+       [[ "$LBUFFER" == "$_DGO_LIVE_SNAPSHOT_BEFORE" &&
+          "$RBUFFER" == "$_DGO_LIVE_SNAPSHOT_AFTER" ]]; then
       return
     fi
+    _dgo_live_cancel_expand
+    _dgo_live_cancel_loader
     _dgo_live_cancel_timer
+    _dgo_live_retire_model
     (( _DGO_LIVE_GENERATION++ ))
     _DGO_LIVE_SNAPSHOT="$BUFFER"
+    _DGO_LIVE_SNAPSHOT_BEFORE="$LBUFFER"
+    _DGO_LIVE_SNAPSHOT_AFTER="$RBUFFER"
     local generation=$_DGO_LIVE_GENERATION
-    local snapshot="$_DGO_LIVE_SNAPSHOT" after="$RBUFFER" cwd="$PWD" rows=$LINES columns=$COLUMNS
+    local before="$_DGO_LIVE_SNAPSHOT_BEFORE" after="$_DGO_LIVE_SNAPSHOT_AFTER"
+    local cwd="$PWD" rows=$LINES columns=$COLUMNS
     exec {_DGO_LIVE_FD}< <(
       setopt localoptions nobgnice
       sleep "${_DGO_LIVE_DEBOUNCE_SECONDS:-0.030}"
-      print -rn -- "$generation"$'\0'
-      printf '%s\0%s\0' "$snapshot" "$after" |
+      printf '%s\0%s\0' "$before" "$after" |
         command dgo __suggest-complete --shell zsh --cwd "$cwd" \
-          --terminal-rows "$rows" --terminal-columns "$columns" 2>/dev/null &
+          --terminal-rows "$rows" --terminal-columns "$columns" \
+          --page-offset 0 --page-size "$_DGO_LIVE_PAGE_SIZE" \
+          --include-total --include-descriptions --frame-generation "$generation" 2>/dev/null &
       local completion_pid=$!
       ( sleep "$_DGO_LIVE_TIMEOUT_SECONDS"; kill -TERM "$completion_pid" 2>/dev/null ) &
       local timeout_pid=$!
@@ -289,7 +618,11 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   function _dgo_live_accept() {
     local replacement="${_DGO_LIVE_REPLACEMENTS[_DGO_LIVE_SELECTED]:-}"
     _dgo_live_cancel_timer
-    if [[ -n "$replacement" ]]; then
+    _dgo_live_cancel_expand
+    _dgo_live_cancel_loader
+    if [[ -n "$replacement" &&
+          "$LBUFFER" == "$_DGO_LIVE_SNAPSHOT_BEFORE" &&
+          "$RBUFFER" == "$_DGO_LIVE_SNAPSHOT_AFTER" ]]; then
       LBUFFER="$replacement"
     fi
     _dgo_live_dismiss
@@ -297,36 +630,76 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
 
   function _dgo_live_dismiss() {
     _dgo_live_cancel_timer
+    _dgo_live_cancel_expand
+    _dgo_live_cancel_loader
     _DGO_LIVE_LAST_BUFFER="$BUFFER"
+    _DGO_LIVE_LAST_CURSOR=$CURSOR
     _DGO_LIVE_LAST_LINES=$LINES
     _DGO_LIVE_LAST_COLUMNS=$COLUMNS
-    _dgo_live_restore_keys
-    _DGO_LIVE_BASE_KEYMAP=''
-    _DGO_LIVE_VALUES=()
-    _DGO_LIVE_DISPLAYS=()
-    _DGO_LIVE_LABELS=()
-    _DGO_LIVE_REPLACEMENTS=()
-    zle -M ''
+    _dgo_live_retire_model
     zle -R -c
   }
 
   function _dgo_live_up() {
+    _dgo_live_cancel_expand
+    _DGO_LIVE_EXPANDED=1
     (( _DGO_LIVE_SELECTED > 1 )) && (( _DGO_LIVE_SELECTED-- ))
     _dgo_live_render
+    _dgo_live_maybe_load_more
+    return 0
   }
 
   function _dgo_live_down() {
+    _dgo_live_cancel_expand
+    _DGO_LIVE_EXPANDED=1
+    if (( _DGO_LIVE_SELECTED >= ${#_DGO_LIVE_VALUES} &&
+          ${#_DGO_LIVE_VALUES} < _DGO_LIVE_TOTAL )); then
+      _dgo_live_maybe_load_more
+      (( _DGO_LIVE_LOAD_FD >= 0 )) && _dgo_live_load_ready "$_DGO_LIVE_LOAD_FD"
+    fi
     (( _DGO_LIVE_SELECTED < ${#_DGO_LIVE_VALUES} )) && (( _DGO_LIVE_SELECTED++ ))
     _dgo_live_render
+    _dgo_live_maybe_load_more
+    return 0
+  }
+
+  function _dgo_live_page_up() {
+    _dgo_live_cancel_expand
+    _DGO_LIVE_EXPANDED=1
+    (( _DGO_LIVE_SELECTED -= _DGO_LIVE_VISIBLE ))
+    (( _DGO_LIVE_SELECTED < 1 )) && _DGO_LIVE_SELECTED=1
+    _dgo_live_render
+    return 0
+  }
+
+  function _dgo_live_page_down() {
+    local -i target
+    _dgo_live_cancel_expand
+    _DGO_LIVE_EXPANDED=1
+    target=$(( _DGO_LIVE_SELECTED + _DGO_LIVE_VISIBLE ))
+    if (( target > ${#_DGO_LIVE_VALUES} && ${#_DGO_LIVE_VALUES} < _DGO_LIVE_TOTAL )); then
+      _dgo_live_maybe_load_more
+      (( _DGO_LIVE_LOAD_FD >= 0 )) && _dgo_live_load_ready "$_DGO_LIVE_LOAD_FD"
+    fi
+    _DGO_LIVE_SELECTED=$target
+    (( _DGO_LIVE_SELECTED > ${#_DGO_LIVE_VALUES} )) && _DGO_LIVE_SELECTED=${#_DGO_LIVE_VALUES}
+    _dgo_live_render
+    _dgo_live_maybe_load_more
+    return 0
   }
 
   function _dgo_live_line_finish() {
     _dgo_live_cancel_timer
+    _dgo_live_cancel_expand
+    _dgo_live_cancel_loader
     _dgo_live_restore_keys
     _DGO_LIVE_LAST_BUFFER=''
+    _DGO_LIVE_LAST_CURSOR=-1
     _DGO_LIVE_SNAPSHOT=''
+    _DGO_LIVE_SNAPSHOT_BEFORE=''
+    _DGO_LIVE_SNAPSHOT_AFTER=''
     _DGO_LIVE_BASE_KEYMAP=''
-    zle -M ''
+    _dgo_live_clear_display
     zle -R -c
   }
 
@@ -354,10 +727,14 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   zle -N _dgo_accept_suggestion
   zle -N _dgo_pick_suggestion
   zle -N _dgo_live_ready
+  zle -N _dgo_live_load_ready
+  zle -N _dgo_live_expand_ready
   zle -N _dgo_live_accept
   zle -N _dgo_live_dismiss
   zle -N _dgo_live_up
   zle -N _dgo_live_down
+  zle -N _dgo_live_page_up
+  zle -N _dgo_live_page_down
   bindkey '^F' _dgo_accept_suggestion
   bindkey '^[[Z' _dgo_pick_suggestion
   if command dgo __suggest-live-enabled >/dev/null 2>&1; then
@@ -932,7 +1309,7 @@ mod tests {
     }
 
     #[test]
-    fn zsh_live_panel_uses_redraw_hooks_and_a_stale_safe_native_timer() {
+    fn zsh_live_panel_uses_redraw_hooks_and_stale_safe_native_timers() {
         let script = integration(Shell::Zsh);
         assert!(script.contains("add-zle-hook-widget line-pre-redraw _dgo_live_pre_redraw"));
         assert!(script.contains("add-zle-hook-widget line-finish _dgo_live_line_finish"));
@@ -944,11 +1321,22 @@ mod tests {
         assert!(script.contains("setopt localoptions nobgnice"));
         assert!(script.contains("_DGO_LIVE_GENERATION"));
         assert!(script.contains("_DGO_LIVE_SNAPSHOT"));
-        assert!(script.contains("zle -M \"$panel\""));
-        assert!(script.contains("available=$(( COLUMNS > 18 ? COLUMNS - 10 : 8 ))"));
+        assert!(script.contains("_DGO_LIVE_SNAPSHOT_BEFORE"));
+        assert!(script.contains("_DGO_LIVE_SNAPSHOT_AFTER"));
+        assert!(script.contains("_DGO_LIVE_EXPAND_SECONDS='0.140'"));
+        assert!(script.contains("_DGO_LIVE_PAGE_SIZE=96"));
+        assert!(script.contains("--page-offset 0 --page-size \"$_DGO_LIVE_PAGE_SIZE\""));
+        assert!(script.contains("--frame-generation \"$generation\""));
+        assert!(script.contains("function _dgo_live_page_up()"));
+        assert!(script.contains("function _dgo_live_page_down()"));
+        assert!(script.contains("PgUp/PgDn page"));
+        assert!(script.contains("POSTDISPLAY=$'\\n'\"$panel\""));
+        assert!(script.contains("memo=dirgo-live"));
+        assert!(script.contains("available=$(( COLUMNS > 30 ? COLUMNS - 22 : 8 ))"));
         assert!(script.contains("DGO_NO_UNICODE"));
         assert!(script.contains("COLUMNS >= 54"));
         assert!(script.contains("function _dgo_live_accept()"));
+        assert!(script.contains("function _dgo_live_retire_model()"));
         assert!(script.contains("function _dgo_live_dismiss()"));
         assert!(!script.contains("bindkey 'a'"));
         assert!(!script.contains("bindkey ' '"));
