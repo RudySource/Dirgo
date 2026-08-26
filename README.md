@@ -434,6 +434,14 @@ project-scoped commands on top of that existing engine.
 | Shell intelligence · 0.4 | **Current release** | Zsh live panel, Bash/Fish native completions, PowerShell predictor, command catalog, descriptions, paging, and custom data-only command specs |
 | Project commands · 0.5 | **Next** | Suggest useful commands from the project the user is currently in, not from a global generic list alone |
 
+### Dirgo 0.4 · Shell Suggestions
+
+<p align="center">
+  <img src="docs/assets/dirgo-suggestions.gif" width="860" alt="Dirgo shell suggestions completing a Git command with a description and a directory path">
+</p>
+
+<p align="center"><sub>Commands, descriptions, and paths appear while you type; selection only inserts text.</sub></p>
+
 ### Dirgo 0.5 · Project Commands
 
 Dirgo will read a small set of local manifests as bounded data, combine declared
