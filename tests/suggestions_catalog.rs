@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::ffi::OsStr;
 
 use dirgo::suggestions::{CommandCatalog, portable_command_name};
