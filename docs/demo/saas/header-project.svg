@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="105" fill="#09131F"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif">
+    <text x="98" y="31" fill="#62D997" font-size="11" font-weight="750" letter-spacing="1.6">PROJECT SCRIPTS</text>
+    <text x="98" y="72" fill="#F2F5F8" font-size="29" font-weight="620" letter-spacing="-.8">Six local tasks. One keystroke.</text>
+    <g transform="translate(932 27)">
+      <rect width="171" height="38" rx="10" fill="#10231C" stroke="#28553E"/>
+      <text x="17" y="24" fill="#86DDB0" font-size="11" font-weight="750" letter-spacing="1.2">06 PROJECT TASKS</text>
+    </g>
+  </g>
+</svg>

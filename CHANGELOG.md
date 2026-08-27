@@ -4,6 +4,30 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26
+
+### Added
+
+- Add project-scoped `PROJ` suggestions for npm, pnpm, Yarn, and Bun scripts; Cargo workspace packages, binaries, examples, and features; simple Make targets, Just recipes, and Compose services.
+- Add compact source-aware descriptions to project commands across Zsh, Bash, Fish, and the native PowerShell predictor.
+- Add a bounded local project-command cache with content fingerprints, atomic snapshots, background refresh, and per-project invalidation.
+- Open the current directory immediately with `dgo --open`, accept full directory paths directly, and surface existing paths outside the index inside the interactive picker.
+
+### Changed
+
+- Prefer commands declared by the current project over matching global command-history entries while preserving deterministic paging and deduplication.
+- Recognize Just and Compose files as project-root markers and isolate malformed optional manifests instead of suppressing other project commands.
+- Restyle the shared suggestion picker and Zsh live panel with responsive terminal-native chrome, explicit actions, accessible text labels, and color/Unicode fallbacks.
+
+### Fixed
+
+- Keep the Zsh redraw guard recoverable when a line is interrupted during delayed expansion, remove owned `POSTDISPLAY` content literally without duplicating panels, and preserve project source labels in wide rows.
+
+### Security
+
+- Parse manifests as bounded data without invoking package managers, Cargo, Make, Just, Docker, shell completion scripts, or manifest-defined commands.
+- Keep manifest bodies out of suggestion descriptions, restrict inserted task identifiers to portable text, and store at most 64 private local project snapshots.
+
 ## [0.4.0] - 2026-08-26
 
 ### Added

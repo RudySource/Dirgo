@@ -129,6 +129,7 @@ public sealed class DirgoPredictor : ICommandPredictor, IDisposable
             "filesystem" => "FILE",
             "command_history" => "HIST",
             "navigation_history" => "NAV",
+            "project_command" => "PROJ",
             "builtin" => "BLT",
             "alias" => "ALS",
             "executable" => "PATH",

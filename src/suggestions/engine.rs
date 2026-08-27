@@ -6,10 +6,11 @@ use crate::{
 };
 
 use super::{
-    CommandCatalog, CompletionContext, Suggestion, SuggestionRequest, TopSuggestions,
+    CommandCatalog, CompletionContext, ProjectCommandSnapshot, Suggestion, SuggestionRequest,
+    TopSuggestions,
     providers::{
         CommandHistoryEntry, command_suggestions, directory_query, directory_suggestions,
-        executable_suggestions, history_suggestions,
+        executable_suggestions, history_suggestions, project_command_suggestions,
     },
     sanitize_suggestion,
     top_k::compare_best,
@@ -63,11 +64,19 @@ impl SuggestionEngine {
     }
 
     pub fn suggest(&self, request: &SuggestionRequest) -> Vec<Suggestion> {
+        self.suggest_with_project(request, None)
+    }
+
+    pub fn suggest_with_project(
+        &self,
+        request: &SuggestionRequest,
+        project: Option<&ProjectCommandSnapshot>,
+    ) -> Vec<Suggestion> {
         let mut top = TopSuggestions::new(super::visible_result_limit(
             request.terminal_rows,
             request.max_results,
         ));
-        for suggestion in self.candidates(request) {
+        for suggestion in self.candidates(request, project) {
             if suggestion.edit.replacement == request.before_cursor {
                 continue;
             }
@@ -82,8 +91,18 @@ impl SuggestionEngine {
         offset: usize,
         page_size: usize,
     ) -> SuggestionPage {
+        self.suggest_page_with_project(request, None, offset, page_size)
+    }
+
+    pub fn suggest_page_with_project(
+        &self,
+        request: &SuggestionRequest,
+        project: Option<&ProjectCommandSnapshot>,
+        offset: usize,
+        page_size: usize,
+    ) -> SuggestionPage {
         let mut unique = HashMap::<String, Suggestion>::new();
-        for suggestion in self.candidates(request) {
+        for suggestion in self.candidates(request, project) {
             if suggestion.edit.replacement == request.before_cursor {
                 continue;
             }
@@ -110,12 +129,17 @@ impl SuggestionEngine {
         SuggestionPage { suggestions, total }
     }
 
-    fn candidates(&self, request: &SuggestionRequest) -> Vec<Suggestion> {
+    fn candidates(
+        &self,
+        request: &SuggestionRequest,
+        project: Option<&ProjectCommandSnapshot>,
+    ) -> Vec<Suggestion> {
         let records = self.prefix_records(request);
         let context = CompletionContext::parse(request.shell, &request.before_cursor);
         let mut candidates = directory_suggestions(request, &self.data, &records);
         candidates.extend(command_suggestions(request, &context, &self.data.catalog));
         candidates.extend(history_suggestions(request, &self.data.command_history));
+        candidates.extend(project_command_suggestions(request, project));
         candidates.extend(executable_suggestions(request, &self.data.catalog));
         candidates.extend(super::providers::filesystem_suggestions(request));
         candidates

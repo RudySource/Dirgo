@@ -62,7 +62,9 @@ pub struct CommandCatalog {
 
 impl Default for CommandCatalog {
     fn default() -> Self {
-        let mut commands = vec![command_spec(&Cli::command())];
+        let mut dirgo = Cli::command();
+        dirgo.build();
+        let mut commands = vec![command_spec(&dirgo)];
         commands.extend(super::specs::builtin_command_specs());
         let command_index = command_index(&commands);
         Self {

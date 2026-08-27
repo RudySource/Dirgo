@@ -737,6 +737,63 @@ fn action_flags_work_after_the_query() {
 }
 
 #[test]
+fn open_without_a_query_targets_the_current_directory_and_accepts_an_absolute_path() {
+    let fixture = Fixture::new();
+    let bin = fixture.temp.path().join("action-bin");
+    fs::create_dir(&bin).expect("action bin");
+    #[cfg(target_os = "macos")]
+    let opener_name = "open";
+    #[cfg(not(target_os = "macos"))]
+    let opener_name = "xdg-open";
+    let opener = bin.join(opener_name);
+    let output = fixture.temp.path().join("opened-directory");
+    fs::write(
+        &opener,
+        "#!/bin/sh\nprintf '%s' \"$1\" > \"$DGO_ACTION_OUTPUT\"\n",
+    )
+    .expect("opener fixture");
+    fs::set_permissions(&opener, fs::Permissions::from_mode(0o755)).expect("opener permissions");
+    let current = fixture.temp.path().join("filesystem/Projects/Punk");
+
+    fixture
+        .command()
+        .current_dir(&current)
+        .env("PATH", &bin)
+        .env("DGO_ACTION_OUTPUT", &output)
+        .arg("--open")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    assert_eq!(
+        fs::read_to_string(&output).expect("current directory capture"),
+        current
+            .canonicalize()
+            .expect("canonical current")
+            .display()
+            .to_string()
+    );
+
+    let absolute = fixture.temp.path().join("filesystem/Projects/quo'te space");
+    fixture
+        .command()
+        .env("PATH", &bin)
+        .env("DGO_ACTION_OUTPUT", &output)
+        .arg("--open")
+        .arg(&absolute)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    assert_eq!(
+        fs::read_to_string(output).expect("absolute directory capture"),
+        absolute
+            .canonicalize()
+            .expect("canonical absolute")
+            .display()
+            .to_string()
+    );
+}
+
+#[test]
 fn shell_resolver_recovers_trailing_action_flags() {
     let fixture = Fixture::new();
     let target = fixture.temp.path().join("filesystem/Projects/Punk");

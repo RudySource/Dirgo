@@ -714,6 +714,73 @@ fn worker_readiness_handshake_precedes_protocol_frames() {
 }
 
 #[test]
+fn warmed_project_cache_is_served_by_protocol_and_shell_completion_paths() {
+    let fixture = Fixture::new();
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    let project = fixture.temp.path().join("filesystem/Projects/App");
+    fs::create_dir_all(&project).expect("project");
+    fs::write(
+        project.join("package.json"),
+        r#"{"name":"app","scripts":{"build":"vite build"}}"#,
+    )
+    .expect("package.json");
+    fixture
+        .command()
+        .arg("__suggest-project-refresh")
+        .arg("--cwd")
+        .arg(&project)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let request = SuggestionRequest {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: 501,
+        shell: ShellKind::PowerShell,
+        cwd: project.clone(),
+        before_cursor: "npm run bu".into(),
+        after_cursor: String::new(),
+        max_results: 8,
+        terminal_rows: Some(24),
+        terminal_columns: Some(120),
+        presentation: dirgo::suggestions::SuggestionPresentation::List,
+    };
+    let output = fixture
+        .command()
+        .arg("__suggest")
+        .write_stdin(format!(
+            "{}\n",
+            serde_json::to_string(&request).expect("request json")
+        ))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let response: SuggestionResponse = serde_json::from_slice(&output).expect("response");
+    assert!(response.suggestions.iter().any(|suggestion| {
+        suggestion.source == SuggestionSource::ProjectCommand
+            && suggestion.edit.replacement == "npm run build"
+    }));
+
+    fixture
+        .command()
+        .args(["__suggest-complete", "--shell", "zsh", "--cwd"])
+        .arg(&project)
+        .args(["--include-descriptions"])
+        .write_stdin("npm run bu\0\0")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("PROJ").and(predicate::str::contains("package.json script")),
+        );
+}
+
+#[test]
 fn long_lived_worker_reloads_command_history_after_it_changes() {
     let fixture = Fixture::new();
     fixture

@@ -18,6 +18,14 @@ perform this action.
 **Provider**: A local source of suggestions, such as the directory index,
 navigation history, command history, executables, or the filesystem.
 
+**Project command**: A safe command form derived from a static declaration in
+the nearest project manifest. It belongs to that project root and is never
+offered from an unrelated working directory.
+
+**Project snapshot**: The bounded, immutable set of project commands consumed
+by ranking. Snapshot publication and manifest parsing are separate from the
+input path.
+
 **Completion provider**: A source of context-aware command, subcommand, option,
 or argument candidates. It may be backed by Dirgo's static index or by the
 interactive shell's registered completion system.
@@ -88,8 +96,8 @@ navigation history and is used only after explicit opt-in.
   request cannot make the editor callback block while waiting for the
   remainder. Descriptions are requested explicitly by the Zsh adapter, leaving
   the existing Bash and Fish completion tuple unchanged.
-- Sources are understandable without color: `CMD`, `SUB`, `OPT`, `DIR`, `FILE`,
-  `HIST`, and `NAV`.
+- Sources are understandable without color: `CMD`, `SUB`, `OPT`, `PROJ`, `DIR`,
+  `FILE`, `HIST`, and `NAV`.
 - The renderer applies a row-level diff and never redraws an unchanged panel.
 - `NO_COLOR`, ASCII mode, multiline prompts, terminal resize, paste, reverse
   search, vi mode, suspended jobs, and terminal restoration are explicit test
@@ -124,6 +132,21 @@ collector. The Zsh catalog view computes an exact, deterministic ordering,
 returns it in pages of 96, and never renders the entire set. Later pages are
 loaded only as the user approaches them; walking the whole list is possible
 without paying its full shell-memory cost up front.
+
+## Project commands
+
+The project provider resolves the nearest existing project root and reads only
+bounded static data. Version 0.5 supports `package.json`, `Cargo.toml`, simple
+Makefiles and Justfiles, and the `services` map in common Compose filenames.
+Dynamic targets, unsafe identifiers, oversized files, and malformed optional
+manifests are ignored. Script bodies are never shown or interpreted.
+
+Manifest parsing and content fingerprinting run in a throttled background
+refresh process. Completion requests read a small immutable cache snapshot, so
+the first request in a cold project can omit project commands instead of
+blocking input; a following request observes the published snapshot. Cache
+files are private on Unix, atomically replaced, isolated by project root, and
+pruned to 64 projects.
 
 ## Supported presentation
 

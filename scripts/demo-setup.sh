@@ -14,7 +14,30 @@ mkdir -p \
   "$fixture_root/Projects/Portal/api" \
   "$fixture_root/Archive" \
   "$config_home/dirgo"
-printf '%s\n' '[package]' 'name = "punk-demo"' > "$fixture_root/Projects/Punk/Cargo.toml"
+printf '%s\n' \
+  '[package]' \
+  'name = "punk-demo"' \
+  'version = "0.1.0"' \
+  '' \
+  '[[bin]]' \
+  'name = "server"' \
+  'path = "src/main.rs"' \
+  '' \
+  '[features]' \
+  'fast = []' > "$fixture_root/Projects/Punk/Cargo.toml"
+printf '%s\n' \
+  '{' \
+  '  "name": "punk-web",' \
+  '  "packageManager": "pnpm@10.15.0",' \
+  '  "scripts": {' \
+  '    "build": "vite build",' \
+  '    "dev": "vite",' \
+  '    "format": "prettier --write .",' \
+  '    "lint": "eslint .",' \
+  '    "preview": "vite preview",' \
+  '    "test": "vitest"' \
+  '  }' \
+  '}' > "$fixture_root/Projects/Punk/package.json"
 printf 'schema_version = 1\nroots = ["%s"]\n' "$fixture_root" > "$config_home/dirgo/config.toml"
 
 printf 'export DGO_DEMO_ROOT=%q\n' "$demo_root"

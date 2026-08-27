@@ -63,6 +63,7 @@ pub enum SuggestionSource {
     Builtin,
     Alias,
     Filesystem,
+    ProjectCommand,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -118,6 +118,20 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   if [[ "$_DGO_LIVE_TIMEOUT_MILLISECONDS" == <10-500> ]]; then
     printf -v _DGO_LIVE_TIMEOUT_SECONDS '0.%03d' "$_DGO_LIVE_TIMEOUT_MILLISECONDS"
   fi
+  typeset -g _DGO_LIVE_VERSION="$(command dgo --version 2>/dev/null)"
+  _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION#dgo }"
+  _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION%.*}"
+  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.5'
+  typeset -g _DGO_LIVE_ACCENT_STYLE='fg=#20bf55,bold'
+  typeset -g _DGO_LIVE_SELECTED_STYLE='fg=#f4f7f8,bg=#102018,bold'
+  typeset -g _DGO_LIVE_TEXT_STYLE='fg=#f4f7f8'
+  typeset -g _DGO_LIVE_MUTED_STYLE='fg=#8e9aa5'
+  if [[ "$COLORTERM" != truecolor && "$COLORTERM" != 24bit ]]; then
+    _DGO_LIVE_ACCENT_STYLE='fg=green,bold'
+    _DGO_LIVE_SELECTED_STYLE='fg=white,bg=22,bold'
+    _DGO_LIVE_TEXT_STYLE='fg=white'
+    _DGO_LIVE_MUTED_STYLE='fg=8'
+  fi
 
   typeset -g _DGO_LIVE_GENERATION=0
   typeset -g _DGO_LIVE_FD=-1
@@ -184,7 +198,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     if [[ -n "$_DGO_LIVE_POSTDISPLAY" &&
           "$POSTDISPLAY" == *"$_DGO_LIVE_POSTDISPLAY"* ]]; then
       escaped_owned="${(b)_DGO_LIVE_POSTDISPLAY}"
-      POSTDISPLAY="${POSTDISPLAY/${escaped_owned}/}"
+      POSTDISPLAY="${POSTDISPLAY/${~escaped_owned}/}"
     fi
     _DGO_LIVE_POSTDISPLAY=''
     if (( _DGO_LIVE_CAN_HIGHLIGHT )); then
@@ -215,8 +229,11 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     (( _DGO_LIVE_EXPANDED )) && return
     _DGO_LIVE_EXPANDED=1
     _DGO_LIVE_GUARD=1
-    _dgo_live_render
-    _DGO_LIVE_GUARD=0
+    {
+      _dgo_live_render
+    } always {
+      _DGO_LIVE_GUARD=0
+    }
   }
 
   function _dgo_live_ready() {
@@ -263,13 +280,16 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     _DGO_LIVE_SELECTED=1
     _DGO_LIVE_EXPANDED=0
     _DGO_LIVE_GUARD=1
-    if [[ -z "$_DGO_LIVE_BASE_KEYMAP" ]]; then
-      _DGO_LIVE_BASE_KEYMAP="$KEYMAP"
-      _dgo_live_install_keys
-    fi
-    _dgo_live_render
-    _dgo_live_schedule_expand
-    _DGO_LIVE_GUARD=0
+    {
+      if [[ -z "$_DGO_LIVE_BASE_KEYMAP" ]]; then
+        _DGO_LIVE_BASE_KEYMAP="$KEYMAP"
+        _dgo_live_install_keys
+      fi
+      _dgo_live_render
+      _dgo_live_schedule_expand
+    } always {
+      _DGO_LIVE_GUARD=0
+    }
   }
 
   function _dgo_live_maybe_load_more() {
@@ -344,37 +364,51 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
 
   function _dgo_live_render() {
     setopt localoptions extendedglob
-    local panel header header_left padded_header row left_row padded_left base_postdisplay index marker display kind
-    local description preview_line ellipsis='…' separator='·' divider='│' footer available
+    local panel header header_left header_right row row_content left_row padded_left base_postdisplay index marker display kind
+    local description preview_line ellipsis='…' separator='·' divider='│' footer available indent='  '
+    local top_left='╭' top_right='╮' bottom_left='╰' bottom_right='╯' horizontal='─' tee_left='├' tee_right='┤'
+    local top_rule middle_rule bottom_rule blank_rule
     local -a highlight_starts=() highlight_ends=() highlight_styles=()
     local -a _DGO_LIVE_PREVIEW_LINES=()
-    local -i total=$_DGO_LIVE_TOTAL visible=3 loaded=${#_DGO_LIVE_VALUES} start=1 end row_start metadata_start
-    local -i wide_preview=0 list_width=0 preview_width=0 preview_row=0
-    local -i show_detail=0 panel_budget=$(( LINES / 3 )) max_visible
+    local -i total=$_DGO_LIVE_TOTAL visible=3 loaded=${#_DGO_LIVE_VALUES} start=1 end row_start content_start metadata_start
+    local -i panel_width inner_width wide_preview=0 list_width=0 preview_width=0 preview_row=0
+    local -i show_detail=0 max_visible
     local -i highlight_index highlight_base use_highlight=$_DGO_LIVE_CAN_HIGHLIGHT
     if [[ -n ${DGO_NO_UNICODE:-} ]]; then
       ellipsis='...'
       separator='|'
       divider='|'
+      top_left='+'
+      top_right='+'
+      bottom_left='+'
+      bottom_right='+'
+      horizontal='-'
+      tee_left='+'
+      tee_right='+'
+      indent=' '
     fi
     [[ -n ${NO_COLOR:-} || -n ${DGO_NO_COLOR:-} || -n ${DGO_NO_UNICODE:-} || $TERM == dumb ]] && use_highlight=0
+    panel_width=$(( COLUMNS - ${#indent} - 1 ))
+    (( panel_width > 110 )) && panel_width=110
+    (( panel_width < 18 )) && panel_width=$(( COLUMNS > 2 ? COLUMNS - 2 : COLUMNS ))
+    inner_width=$(( panel_width - 2 ))
     description="${_DGO_LIVE_DESCRIPTIONS[_DGO_LIVE_SELECTED]:-}"
     case "$description" in
       ''|DIR|NAV|HIST|PATH|FILE) description='' ;;
     esac
-    if [[ -n "$description" ]] && (( COLUMNS >= 92 )); then
+    if [[ -n "$description" ]] && (( inner_width >= 84 )); then
       wide_preview=1
       list_width=38
-      (( COLUMNS >= 112 )) && list_width=44
-      preview_width=$(( COLUMNS - list_width - 11 ))
+      (( inner_width >= 104 )) && list_width=44
+      preview_width=$(( inner_width - list_width - 3 ))
     fi
     (( !wide_preview && LINES >= 18 && ${#description} > 0 )) && show_detail=1
     if (( _DGO_LIVE_EXPANDED )); then
       visible=$(( LINES / 4 ))
       (( visible < 3 )) && visible=3
-      (( visible > 6 )) && visible=6
+      (( visible > 7 )) && visible=7
     fi
-    max_visible=$(( panel_budget - 2 - show_detail ))
+    max_visible=$(( LINES - 9 - show_detail ))
     (( max_visible < 3 )) && max_visible=3
     (( visible > max_visible )) && visible=$max_visible
     _DGO_LIVE_VISIBLE=$visible
@@ -385,22 +419,29 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     (( end > loaded )) && end=$loaded
     (( wide_preview )) &&
       _dgo_live_wrap_preview "$description" "$preview_width" "$(( end - start + 1 ))"
-    available=$(( COLUMNS > 30 ? COLUMNS - 22 : 8 ))
+    available=$(( inner_width > 20 ? inner_width - 18 : 8 ))
     if [[ -n ${DGO_NO_UNICODE:-} ]]; then
-      header_left="Dirgo suggestions  -  ${start}-${end} / ${total}"
+      header_left="* DIRGO ${_DGO_LIVE_VERSION}  suggestions"
+      header_right="${start}-${end} of ${total}"
     else
-      header_left="Dirgo suggestions  ·  ${start}–${end} / ${total}"
+      header_left="● DIRGO ${_DGO_LIVE_VERSION}  suggestions"
+      header_right="${start}–${end} of ${total}"
     fi
-    if (( wide_preview )); then
-      printf -v padded_header '%-*s' "$list_width" "$header_left"
-      header="    ${padded_header} ${divider} details"
-    else
-      header="    ${header_left}"
+    if (( ${#header_left} + ${#header_right} + 1 > inner_width )); then
+      header_left="${header_left[1,$(( inner_width - ${#header_right} - 2 ))]}"
     fi
-    panel="$header"
-    highlight_starts+=(1 5)
-    highlight_ends+=($(( 1 + ${#header} )) 10)
-    highlight_styles+=('fg=8' 'fg=cyan,bold')
+    printf -v header '%-*s%s' "$(( inner_width - ${#header_right} ))" "$header_left" "$header_right"
+    printf -v blank_rule '%*s' "$inner_width" ''
+    top_rule="${blank_rule// /$horizontal}"
+    middle_rule="$top_rule"
+    bottom_rule="$top_rule"
+    panel="${indent}${top_left}${top_rule}${top_right}"
+    row_start=$(( ${#panel} + 2 ))
+    panel+=$'\n'"${indent}${divider}${header}${divider}"
+    highlight_starts+=(1 $(( row_start + ${#indent} + 1 )))
+    highlight_ends+=($(( ${#panel} + 1 )) $(( row_start + ${#indent} + 8 )))
+    highlight_styles+=("$_DGO_LIVE_MUTED_STYLE" "$_DGO_LIVE_ACCENT_STYLE")
+    panel+=$'\n'"${indent}${tee_left}${middle_rule}${tee_right}"
     for (( index = start; index <= end; index++ )); do
       marker=' '
       if (( index == _DGO_LIVE_SELECTED )); then
@@ -421,9 +462,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
         FILE) kind='file' ;;
         *) kind="${(L)_DGO_LIVE_LABELS[index]}" ;;
       esac
-      if (( !wide_preview )); then
-        display="${display%%[[:space:]]##}"
-      fi
+      display="${display%%[[:space:]]##}"
       if (( !wide_preview && ${#display} > available )); then
         if [[ "$ellipsis" == '...' ]]; then
           display="${display[1,$(( available - 3 ))]}${ellipsis}"
@@ -432,28 +471,38 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
         fi
       fi
       row_start=$(( ${#panel} + 2 ))
+      content_start=$(( row_start + ${#indent} + 1 ))
       left_row="${marker}  ${display}  ${separator} ${kind}"
       if (( wide_preview )); then
-        padded_left="$left_row"
+        if (( ${#left_row} > list_width )); then
+          left_row="${left_row[1,$(( list_width - 1 ))]}${ellipsis[1]}"
+        fi
+        printf -v padded_left '%-*s' "$list_width" "$left_row"
         preview_row=$(( index - start + 1 ))
         preview_line="${_DGO_LIVE_PREVIEW_LINES[preview_row]:-}"
-        row="    ${padded_left} ${divider} ${preview_line}"
+        (( ${#preview_line} > preview_width )) && preview_line="${preview_line[1,$(( preview_width - 1 ))]}${ellipsis[1]}"
+        printf -v preview_line '%-*s' "$preview_width" "$preview_line"
+        row_content="${padded_left} ${divider} ${preview_line}"
       else
-        row="    ${left_row}"
+        if (( ${#left_row} > inner_width )); then
+          left_row="${left_row[1,$(( inner_width - 1 ))]}${ellipsis[1]}"
+        fi
+        printf -v row_content '%-*s' "$inner_width" "$left_row"
       fi
+      row="${indent}${divider}${row_content}${divider}"
       panel+=$'\n'"$row"
-      metadata_start=$(( row_start + 7 + ${#display} + 2 ))
+      metadata_start=$(( content_start + 3 + ${#display} + 2 ))
       highlight_starts+=($metadata_start)
-      highlight_ends+=($(( row_start + ${#row} )))
-      highlight_styles+=('fg=8')
+      highlight_ends+=($(( content_start + inner_width )))
+      highlight_styles+=("$_DGO_LIVE_MUTED_STYLE")
       if (( index == _DGO_LIVE_SELECTED )); then
-        highlight_starts+=($(( row_start + 4 )) $(( row_start + 7 )))
-        highlight_ends+=($(( row_start + 5 )) $(( row_start + 7 + ${#display} )))
-        highlight_styles+=('fg=cyan,bold' 'bold')
+        highlight_starts+=($content_start $content_start)
+        highlight_ends+=($(( content_start + inner_width )) $(( content_start + 1 )))
+        highlight_styles+=("$_DGO_LIVE_SELECTED_STYLE" "$_DGO_LIVE_ACCENT_STYLE")
       fi
     done
     if (( show_detail )) && [[ -n "$description" ]]; then
-      available=$(( COLUMNS > 16 ? COLUMNS - 12 : 8 ))
+      available=$(( inner_width > 6 ? inner_width - 5 : 8 ))
       if (( ${#description} > available )); then
         if [[ "$ellipsis" == '...' ]]; then
           description="${description[1,$(( available - 3 ))]}${ellipsis}"
@@ -463,29 +512,35 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
       fi
       row_start=$(( ${#panel} + 2 ))
       if [[ -n ${DGO_NO_UNICODE:-} ]]; then
-        row="       - ${description}"
+        row_content="   - ${description}"
       else
-        row="       ↳ ${description}"
+        row_content="   ↳ ${description}"
       fi
+      printf -v row_content '%-*s' "$inner_width" "$row_content"
+      row="${indent}${divider}${row_content}${divider}"
       panel+=$'\n'"$row"
       highlight_starts+=($row_start)
       highlight_ends+=($(( row_start + ${#row} )))
-      highlight_styles+=('fg=8')
+      highlight_styles+=("$_DGO_LIVE_MUTED_STYLE")
     fi
-    if (( COLUMNS >= 54 )); then
-      footer='↑↓ move   PgUp/PgDn page   Tab insert   Esc close'
-    elif (( COLUMNS >= 34 )); then
-      footer='↑↓ · PgUp/PgDn · Tab · Esc'
+    panel+=$'\n'"${indent}${tee_left}${middle_rule}${tee_right}"
+    if (( inner_width >= 62 )); then
+      footer='[↑↓] Select   [PgUp/PgDn] Page   [Tab] Insert   [Esc] Close'
+    elif (( inner_width >= 42 )); then
+      footer='[↑↓] Select   [Tab] Insert   [Esc] Close'
     else
-      footer='↑↓ · Tab · Esc'
+      footer='[↑↓]   [Tab] Insert   [Esc] Close'
     fi
-    [[ -n ${DGO_NO_UNICODE:-} ]] && footer='Up/Down | PgUp/PgDn | Tab | Esc'
+    [[ -n ${DGO_NO_UNICODE:-} ]] && footer='[Up/Down] Select | [Tab] Insert | [Esc] Close'
+    (( ${#footer} > inner_width )) && footer="${footer[1,$inner_width]}"
+    printf -v footer '%-*s' "$inner_width" "$footer"
     row_start=$(( ${#panel} + 2 ))
-    row="    ${footer}"
+    row="${indent}${divider}${footer}${divider}"
     panel+=$'\n'"$row"
     highlight_starts+=($row_start)
     highlight_ends+=($(( row_start + ${#row} )))
-    highlight_styles+=('fg=8')
+    highlight_styles+=("$_DGO_LIVE_MUTED_STYLE")
+    panel+=$'\n'"${indent}${bottom_left}${bottom_rule}${bottom_right}"
 
     _dgo_live_clear_display
     base_postdisplay="$POSTDISPLAY"
@@ -689,6 +744,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   }
 
   function _dgo_live_line_finish() {
+    _DGO_LIVE_GUARD=0
     _dgo_live_cancel_timer
     _dgo_live_cancel_expand
     _dgo_live_cancel_loader
@@ -1324,22 +1380,43 @@ mod tests {
         assert!(script.contains("_DGO_LIVE_SNAPSHOT_BEFORE"));
         assert!(script.contains("_DGO_LIVE_SNAPSHOT_AFTER"));
         assert!(script.contains("_DGO_LIVE_EXPAND_SECONDS='0.140'"));
+        assert_eq!(script.matches("} always {").count(), 2);
+        assert!(script.contains("function _dgo_live_line_finish() {\n    _DGO_LIVE_GUARD=0"));
         assert!(script.contains("_DGO_LIVE_PAGE_SIZE=96"));
         assert!(script.contains("--page-offset 0 --page-size \"$_DGO_LIVE_PAGE_SIZE\""));
         assert!(script.contains("--frame-generation \"$generation\""));
         assert!(script.contains("function _dgo_live_page_up()"));
         assert!(script.contains("function _dgo_live_page_down()"));
-        assert!(script.contains("PgUp/PgDn page"));
+        assert!(script.contains("[PgUp/PgDn] Page"));
         assert!(script.contains("POSTDISPLAY=$'\\n'\"$panel\""));
+        assert!(script.contains("POSTDISPLAY=\"${POSTDISPLAY/${~escaped_owned}/}\""));
         assert!(script.contains("memo=dirgo-live"));
-        assert!(script.contains("available=$(( COLUMNS > 30 ? COLUMNS - 22 : 8 ))"));
+        assert!(script.contains("available=$(( inner_width > 20 ? inner_width - 18 : 8 ))"));
         assert!(script.contains("DGO_NO_UNICODE"));
-        assert!(script.contains("COLUMNS >= 54"));
+        assert!(script.contains("inner_width >= 62"));
         assert!(script.contains("function _dgo_live_accept()"));
         assert!(script.contains("function _dgo_live_retire_model()"));
         assert!(script.contains("function _dgo_live_dismiss()"));
         assert!(!script.contains("bindkey 'a'"));
         assert!(!script.contains("bindkey ' '"));
+    }
+
+    #[test]
+    fn zsh_live_panel_uses_premium_terminal_chrome_with_accessible_fallbacks() {
+        let script = integration(Shell::Zsh);
+
+        assert!(script.contains("_DGO_LIVE_VERSION"));
+        assert!(script.contains("● DIRGO ${_DGO_LIVE_VERSION}"));
+        assert!(script.contains("╭"));
+        assert!(script.contains("╰"));
+        assert!(script.contains("#20bf55"));
+        assert!(script.contains("#102018"));
+        assert!(script.contains("[Tab] Insert"));
+        assert!(script.contains("[Esc] Close"));
+        assert!(script.contains("description=\"${_DGO_LIVE_DESCRIPTIONS[_DGO_LIVE_SELECTED]:-}\""));
+        assert!(script.contains("DGO_NO_COLOR"));
+        assert!(script.contains("DGO_NO_UNICODE"));
+        assert!(script.contains("POSTDISPLAY=$'\\n'\"$panel\""));
     }
 
     #[test]

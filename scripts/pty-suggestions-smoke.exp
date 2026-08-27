@@ -90,7 +90,7 @@ proc run_shell {name executable setup binding_check verify picker_reset picker_v
     send -- "cd pun"
     send -- "\x1b\[Z"
     expect {
-        -re {Dirgo.*suggestions} {}
+        -re {(?i)dirgo.*suggestions} {}
         timeout { puts stderr "$name suggestion picker did not open"; send -- "\003exit\r"; expect eof; return 1 }
     }
     send -- "\r"

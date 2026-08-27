@@ -1,0 +1,36 @@
+{
+  "name": "dirgo-product-video",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Deterministic Remotion compositions for Dirgo product media",
+  "scripts": {
+    "dev": "remotion studio src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "build": "remotion bundle src/index.ts --out-dir .remotion/bundle",
+    "render:hero": "remotion render src/index.ts DirgoHero out/dirgo-hero.mp4 --codec=h264 --crf=18 --concurrency=4",
+    "render:hero:webm": "remotion render src/index.ts DirgoHero out/dirgo-hero.webm --codec=vp9 --crf=24 --concurrency=4",
+    "render:loop": "remotion render src/index.ts DirgoLoop out/dirgo-loop.mp4 --codec=h264 --crf=20 --concurrency=4",
+    "render:loop:webm": "remotion render src/index.ts DirgoLoop out/dirgo-loop.webm --codec=vp9 --crf=26 --concurrency=4",
+    "render": "npm run render:hero && npm run render:hero:webm && npm run render:loop && npm run render:loop:webm"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.518",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.518"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.518",
+    "@types/node": "26.3.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "eslint": "9.39.5",
+    "typescript": "5.7.3",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

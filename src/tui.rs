@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     env, fs, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -95,6 +95,7 @@ impl Default for Options {
 pub fn pick(
     candidates: Vec<Candidate>,
     query: &str,
+    cwd: &Path,
     default_action: Action,
     action_config: &ActionConfig,
     options: Options,
@@ -105,6 +106,7 @@ pub fn pick(
     pick_with_matcher(
         LiveMatcher::new(candidates, query),
         query,
+        cwd,
         default_action,
         action_config,
         options,
@@ -114,6 +116,7 @@ pub fn pick(
 pub fn pick_stream(
     candidates: PickerCandidateStream,
     query: &str,
+    cwd: &Path,
     default_action: Action,
     action_config: &ActionConfig,
     options: Options,
@@ -124,6 +127,7 @@ pub fn pick_stream(
     pick_with_matcher(
         LiveMatcher::from_stream(candidates, query),
         query,
+        cwd,
         default_action,
         action_config,
         options,
@@ -148,6 +152,7 @@ pub fn pick_index_stream(
     if record_count == 0 {
         return Ok(PickOutcome::Cancelled);
     }
+    let loader_cwd = cwd.clone();
     let loader = move |injector: nucleo::Injector<Candidate>, cancelled: Arc<AtomicBool>| {
         let store = match IndexStore::open(&index_path) {
             Ok(store) => store,
@@ -161,7 +166,8 @@ pub fn pick_index_stream(
             if cancelled.load(Ordering::Relaxed) {
                 return false;
             }
-            let candidate = picker_candidate(record, &bookmarks, &history, &cwd, &ranking, now);
+            let candidate =
+                picker_candidate(record, &bookmarks, &history, &loader_cwd, &ranking, now);
             injector.push(candidate, |candidate, columns| {
                 columns[0] = Utf32String::from(candidate.basename.as_str());
                 columns[1] = Utf32String::from(fuzzy_path_text(&candidate.display_path));
@@ -174,6 +180,7 @@ pub fn pick_index_stream(
     pick_with_matcher(
         LiveMatcher::from_loader(record_count, query, loader),
         query,
+        &cwd,
         default_action,
         action_config,
         options,
@@ -183,6 +190,7 @@ pub fn pick_index_stream(
 fn pick_with_matcher(
     mut matcher: LiveMatcher,
     query: &str,
+    cwd: &Path,
     default_action: Action,
     action_config: &ActionConfig,
     options: Options,
@@ -240,7 +248,18 @@ fn pick_with_matcher(
         let status = matcher.tick(6);
         if status.changed || visible.is_empty() {
             visible = matcher.cached_results();
-            state.update_match_status(matcher.matched_count(), matcher.is_running());
+            let mut matched_total = matcher.matched_count();
+            if let Some(candidate) = typed_directory_candidate(&state.query, cwd)? {
+                let was_present = visible
+                    .iter()
+                    .any(|existing| existing.path == candidate.path);
+                visible.retain(|existing| existing.path != candidate.path);
+                visible.insert(0, candidate);
+                if !was_present {
+                    matched_total = matched_total.saturating_add(1);
+                }
+            }
+            state.update_match_status(matched_total, matcher.is_running());
             state.clamp_selection(visible.len());
         } else {
             state.matching = matcher.is_running();
@@ -573,6 +592,30 @@ fn fuzzy_path_text(value: &str) -> String {
             }
         })
         .collect()
+}
+
+fn typed_directory_candidate(query: &str, cwd: &Path) -> Result<Option<Candidate>> {
+    if query.is_empty() {
+        return Ok(None);
+    }
+    let Some(path) = crate::paths::absolute_directory(query, cwd)? else {
+        return Ok(None);
+    };
+    let display_path = path.display().to_string();
+    let basename = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| display_path.clone());
+    Ok(Some(Candidate {
+        path,
+        display_path,
+        basename,
+        score: f64::MAX,
+        score_breakdown: crate::model::ScoreBreakdown::from_total(f64::MAX),
+        source: "existing_path",
+        is_project_root: false,
+        bookmark: None,
+    }))
 }
 
 fn fullscreen_terminal(
@@ -1504,6 +1547,33 @@ mod tests {
         let results = matcher.cached_results();
         assert_eq!(results.len(), 1);
         assert!(results[0].display_path.contains("punk/apps/frontend"));
+    }
+
+    #[test]
+    fn typed_existing_directory_becomes_a_first_class_picker_candidate() {
+        let temp = tempfile::tempdir().expect("typed path tempdir");
+        let target = temp.path().join("outside index/child");
+        fs::create_dir_all(&target).expect("typed path fixture");
+
+        let candidate = typed_directory_candidate(&target.display().to_string(), temp.path())
+            .expect("valid path")
+            .expect("existing directory candidate");
+
+        assert_eq!(
+            candidate.path,
+            target.canonicalize().expect("canonical target")
+        );
+        assert_eq!(candidate.source, "existing_path");
+        assert!(
+            typed_directory_candidate("", temp.path())
+                .expect("empty query")
+                .is_none()
+        );
+        assert!(
+            typed_directory_candidate("missing", temp.path())
+                .expect("missing query")
+                .is_none()
+        );
     }
 
     #[test]

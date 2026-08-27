@@ -116,7 +116,7 @@ fn create_temporary(parent: &Path) -> Result<(PathBuf, fs::File)> {
 }
 
 #[cfg(unix)]
-fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
+pub(super) fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
     fs::rename(temporary, path).map_err(|error| {
         let _ = fs::remove_file(temporary);
         DirgoError::io(path, error)
@@ -124,7 +124,7 @@ fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
+pub(super) fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,

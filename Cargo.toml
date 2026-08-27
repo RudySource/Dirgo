@@ -1,6 +1,6 @@
 [package]
 name = "dirgo"
-version = "0.4.0"
+version = "0.5.0"
 default-run = "dgo"
 edition = "2024"
 rust-version = "1.89"
@@ -11,7 +11,7 @@ homepage = "https://github.com/RudySource/Dirgo"
 license = "MIT OR Apache-2.0"
 keywords = ["cli", "terminal", "filesystem", "fuzzy-search", "navigation"]
 categories = ["command-line-utilities", "filesystem"]
-exclude = ["command_for_dev.md", "for_social/**"]
+exclude = ["command_for_dev.md", "for_social/**", "marketing/video/**"]
 
 [features]
 default = []

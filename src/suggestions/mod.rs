@@ -3,6 +3,7 @@ mod context;
 mod engine;
 mod picker;
 mod privacy;
+mod project;
 mod protocol;
 mod providers;
 mod sanitize;
@@ -16,6 +17,11 @@ pub use catalog::{CommandCatalog, CommandOption, CommandSpec, portable_command_n
 pub use context::CompletionContext;
 pub use engine::{SuggestionData, SuggestionEngine, SuggestionPage};
 pub use picker::{PickerOptions, pick_suggestion};
+pub use project::{
+    ProjectCommand, ProjectCommandSnapshot, claim_project_command_refresh,
+    load_cached_project_command_snapshot, load_project_command_snapshot,
+    refresh_project_command_cache,
+};
 pub use protocol::{
     MAX_REQUEST_BYTES, ProtocolError, decode_request_line, encode_response_line, read_bounded_frame,
 };

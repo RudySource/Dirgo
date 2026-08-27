@@ -21,6 +21,7 @@ fn predictor_maps_semantic_sources_and_observes_cancellation_around_io() {
         "\"filesystem\" => \"FILE\"",
         "\"command_history\" => \"HIST\"",
         "\"navigation_history\" => \"NAV\"",
+        "\"project_command\" => \"PROJ\"",
     ] {
         assert!(PREDICTOR.contains(mapping), "missing mapping {mapping}");
     }

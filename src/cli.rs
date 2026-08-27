@@ -274,6 +274,11 @@ pub enum Command {
     SuggestNativeTimeout,
     #[command(name = "__suggest-history-enabled", hide = true)]
     SuggestHistoryEnabled,
+    #[command(name = "__suggest-project-refresh", hide = true)]
+    SuggestProjectRefresh {
+        #[arg(long)]
+        cwd: PathBuf,
+    },
     #[command(name = "__suggest-shell", hide = true)]
     SuggestShell {
         #[arg(long, value_enum)]

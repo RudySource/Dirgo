@@ -28,8 +28,10 @@ use crate::{
     state::{StateStore, read_suggestion_context},
     suggestions::{
         CommandCatalog, CommandHistoryStore, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
-        SuggestionResponse, decode_request_line, encode_response_line, pick_suggestion,
-        read_bounded_frame, read_command_history, write_suggestions_config,
+        SuggestionResponse, claim_project_command_refresh, decode_request_line,
+        encode_response_line, load_cached_project_command_snapshot, pick_suggestion,
+        read_bounded_frame, read_command_history, refresh_project_command_cache,
+        write_suggestions_config,
     },
     terminal,
 };
@@ -270,6 +272,10 @@ pub fn run() -> Result<i32> {
             },
         );
     }
+    if let Some(Command::SuggestProjectRefresh { cwd }) = &cli.command {
+        refresh_project_command_cache(&paths.cache_dir, cwd)?;
+        return Ok(0);
+    }
     if let Some(Command::SuggestShell { shell, cwd }) = &cli.command {
         return hidden_suggest_shell(&paths, &config, *shell, cwd);
     }
@@ -370,6 +376,7 @@ pub fn run() -> Result<i32> {
             | Command::SuggestDebounce
             | Command::SuggestNativeTimeout
             | Command::SuggestHistoryEnabled
+            | Command::SuggestProjectRefresh { .. }
             | Command::SuggestShell { .. }
             | Command::SuggestComplete { .. }
             | Command::SuggestPick { .. },
@@ -486,7 +493,9 @@ fn hidden_suggest(paths: &AppPaths, config: &Config) -> Result<i32> {
         }
     };
     let suggestions = if config.suggestions.enabled {
-        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request)
+        let project = cached_project_commands(paths, &request.cwd);
+        build_suggestion_engine(paths, config, needs_executables(&request))?
+            .suggest_with_project(&request, project.as_ref())
     } else {
         Vec::new()
     };
@@ -545,10 +554,11 @@ fn hidden_suggest_worker(paths: &AppPaths, config: &Config, ready: bool) -> Resu
                         engine = next_engine;
                         data_stamp = next_stamp;
                     }
+                    let project = cached_project_commands(paths, &request.cwd);
                     SuggestionResponse::success(
                         request.request_id,
                         if active_config.suggestions.enabled {
-                            engine.suggest(&request)
+                            engine.suggest_with_project(&request, project.as_ref())
                         } else {
                             Vec::new()
                         },
@@ -584,6 +594,29 @@ fn suggestion_data_stamp(paths: &AppPaths) -> SuggestionDataStamp {
         index: stamp(&paths.index_file),
         history: stamp(&paths.suggestions_state_file),
     }
+}
+
+fn cached_project_commands(
+    paths: &AppPaths,
+    cwd: &Path,
+) -> Option<crate::suggestions::ProjectCommandSnapshot> {
+    let snapshot = load_cached_project_command_snapshot(&paths.cache_dir, cwd);
+    if claim_project_command_refresh(&paths.cache_dir, cwd)
+        && let Ok(executable) = env::current_exe()
+        && let Ok(mut child) = std::process::Command::new(executable)
+            .arg("__suggest-project-refresh")
+            .arg("--cwd")
+            .arg(cwd)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+    {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+    snapshot
 }
 
 fn hidden_suggest_record(paths: &AppPaths, config: &Config) -> Result<i32> {
@@ -624,8 +657,9 @@ fn hidden_suggest_shell(
     }
     let (before_cursor, after_cursor) = read_shell_buffer(None)?;
     let request = shell_suggestion_request(config, shell, cwd, before_cursor, after_cursor);
+    let project = cached_project_commands(paths, &request.cwd);
     if let Some(suggestion) = build_suggestion_engine(paths, config, needs_executables(&request))?
-        .suggest(&request)
+        .suggest_with_project(&request, project.as_ref())
         .first()
     {
         println!("{}", suggestion.edit.replacement);
@@ -647,8 +681,9 @@ fn hidden_suggest_pick(
         return Ok(0);
     }
     let request = shell_suggestion_request(config, shell, cwd, before_cursor, after_cursor);
-    let suggestions =
-        build_suggestion_engine(paths, config, needs_executables(&request))?.suggest(&request);
+    let project = cached_project_commands(paths, &request.cwd);
+    let suggestions = build_suggestion_engine(paths, config, needs_executables(&request))?
+        .suggest_with_project(&request, project.as_ref());
     let replacement = pick_suggestion(
         &suggestions,
         crate::suggestions::PickerOptions {
@@ -762,11 +797,17 @@ fn hidden_suggest_complete(
     request.terminal_columns = options.terminal_columns;
     request.presentation = crate::suggestions::SuggestionPresentation::List;
     let engine = build_suggestion_engine(paths, config, needs_executables(&request))?;
+    let project = cached_project_commands(paths, &request.cwd);
     let (suggestions, total) = if let Some(page_size) = options.page_size {
-        let page = engine.suggest_page(&request, options.page_offset, usize::from(page_size));
+        let page = engine.suggest_page_with_project(
+            &request,
+            project.as_ref(),
+            options.page_offset,
+            usize::from(page_size),
+        );
         (page.suggestions, page.total)
     } else {
-        let suggestions = engine.suggest(&request);
+        let suggestions = engine.suggest_with_project(&request, project.as_ref());
         let total = suggestions.len();
         (suggestions, total)
     };
@@ -968,6 +1009,7 @@ fn suggestion_source_label(source: crate::suggestions::SuggestionSource) -> &'st
         SuggestionSource::Builtin => "BLT",
         SuggestionSource::Alias => "ALS",
         SuggestionSource::Filesystem => "FILE",
+        SuggestionSource::ProjectCommand => "PROJ",
     }
 }
 
@@ -1298,6 +1340,9 @@ fn default_query(
         }
         return Ok(0);
     }
+    if query.is_empty() && action != Action::Go {
+        return complete_action(paths, config, cwd, cwd.to_path_buf(), action, shell_mode);
+    }
     let outcome = resolve_query(paths, config, cwd, query, false, io::stdin().is_terminal())?;
     emit_resolution(paths, config, outcome, cwd, shell_mode, action)
 }
@@ -1407,6 +1452,7 @@ fn emit_resolution(
         &response.candidates,
         picker,
         &response.query,
+        origin,
         action,
         config,
     )? {
@@ -1475,6 +1521,7 @@ fn choose_candidate(
     initial_candidates: &[Candidate],
     picker: PickerCandidates,
     query: &str,
+    origin: &Path,
     default_action: Action,
     config: &Config,
 ) -> Result<crate::tui::PickOutcome> {
@@ -1484,6 +1531,7 @@ fn choose_candidate(
         return crate::tui::pick_stream(
             records.into_stream(),
             query,
+            origin,
             default_action,
             &config.actions,
             picker_options(config),
@@ -1529,6 +1577,7 @@ fn choose_candidate(
         return crate::tui::pick(
             picker_candidates,
             query,
+            origin,
             default_action,
             &config.actions,
             picker_options(config),

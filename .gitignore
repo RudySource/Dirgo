@@ -1,4 +1,7 @@
 /target/
+/marketing/video/node_modules/
+/marketing/video/out/
+/marketing/video/.remotion/
 /powershell/**/bin/
 /powershell/**/obj/
 /.idea/

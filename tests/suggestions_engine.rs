@@ -4,9 +4,9 @@ use dirgo::{
     config::RankingConfig,
     model::{DirectoryRecord, PathHistory},
     suggestions::{
-        CommandCatalog, CommandHistoryEntry, CompletionContext, PROTOCOL_VERSION, ShellKind,
-        Suggestion, SuggestionData, SuggestionEngine, SuggestionRequest, SuggestionSource,
-        TextEdit, TopSuggestions,
+        CommandCatalog, CommandHistoryEntry, CompletionContext, PROTOCOL_VERSION, ProjectCommand,
+        ProjectCommandSnapshot, ShellKind, Suggestion, SuggestionData, SuggestionEngine,
+        SuggestionRequest, SuggestionSource, TextEdit, TopSuggestions,
     },
 };
 
@@ -320,6 +320,12 @@ fn dirgo_catalog_completes_public_subcommands_and_options() {
     let options = engine.suggest(&request(ShellKind::PowerShell, "/work", "dgo --upd"));
     assert_eq!(options[0].edit.replacement, "dgo --update");
     assert_eq!(options[0].source, SuggestionSource::Option);
+
+    let version = engine.suggest(&request(ShellKind::Zsh, "/work", "dgo --ver"));
+    assert!(version.iter().any(|suggestion| {
+        suggestion.edit.replacement == "dgo --version"
+            && suggestion.source == SuggestionSource::Option
+    }));
 }
 
 #[test]
@@ -436,4 +442,110 @@ fn path_and_history_candidates_are_merged_instead_of_suppressing_each_other() {
             .iter()
             .any(|item| item.source == SuggestionSource::CommandHistory)
     );
+}
+
+#[test]
+fn project_commands_are_scoped_to_the_snapshot_root_and_only_insert_text() {
+    let snapshot = ProjectCommandSnapshot::new(
+        PathBuf::from("/work/app"),
+        vec![
+            ProjectCommand::new(
+                "npm run build",
+                "build",
+                "package.json script",
+                "package-json:build",
+            ),
+            ProjectCommand::new(
+                "cargo run --bin api",
+                "api",
+                "Cargo binary",
+                "cargo-bin:api",
+            ),
+        ],
+    );
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    for shell in [
+        ShellKind::Zsh,
+        ShellKind::Bash,
+        ShellKind::Fish,
+        ShellKind::PowerShell,
+    ] {
+        let suggestions = engine.suggest_with_project(
+            &request(shell, "/work/app/crates/ui", "npm run bu"),
+            Some(&snapshot),
+        );
+        let build = suggestions
+            .iter()
+            .find(|item| item.edit.replacement == "npm run build")
+            .expect("project command");
+        assert_eq!(build.source, SuggestionSource::ProjectCommand);
+        assert_eq!(build.edit.expected_before, "npm run bu");
+        assert_eq!(build.description.as_deref(), Some("package.json script"));
+    }
+
+    let outside = engine.suggest_with_project(
+        &request(ShellKind::Zsh, "/work/another", "npm run bu"),
+        Some(&snapshot),
+    );
+    assert!(
+        outside
+            .iter()
+            .all(|item| item.source != SuggestionSource::ProjectCommand)
+    );
+}
+
+#[test]
+fn project_command_acceptance_preserves_leading_shell_whitespace() {
+    let snapshot = ProjectCommandSnapshot::new(
+        PathBuf::from("/work/app"),
+        vec![ProjectCommand::new(
+            "npm run build",
+            "build",
+            "package.json script",
+            "package-json:build",
+        )],
+    );
+    let engine = SuggestionEngine::new(SuggestionData::default());
+
+    let suggestions = engine.suggest_with_project(
+        &request(ShellKind::Zsh, "/work/app", "  npm run bu"),
+        Some(&snapshot),
+    );
+    let build = suggestions
+        .iter()
+        .find(|item| item.source == SuggestionSource::ProjectCommand)
+        .expect("project command");
+
+    assert_eq!(build.edit.expected_before, "  npm run bu");
+    assert_eq!(build.edit.replacement, "  npm run build");
+}
+
+#[test]
+fn current_project_command_outranks_the_same_global_history_entry() {
+    let snapshot = ProjectCommandSnapshot::new(
+        PathBuf::from("/work/app"),
+        vec![ProjectCommand::new(
+            "npm run build",
+            "build",
+            "package.json script",
+            "package-json:build",
+        )],
+    );
+    let engine = SuggestionEngine::new(SuggestionData {
+        command_history: vec![CommandHistoryEntry::new(
+            "npm run build",
+            500,
+            2_000_000_000,
+        )],
+        ..SuggestionData::default()
+    });
+
+    let suggestions = engine.suggest_with_project(
+        &request(ShellKind::Zsh, "/work/app", "npm run bu"),
+        Some(&snapshot),
+    );
+
+    assert_eq!(suggestions[0].source, SuggestionSource::ProjectCommand);
+    assert_eq!(suggestions[0].display, "build");
 }

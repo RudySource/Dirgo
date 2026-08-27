@@ -481,7 +481,13 @@ fn marker_kind(name: &str) -> Option<ProjectKind> {
         "pom.xml" | "build.gradle" => Some(ProjectKind::Java),
         "Gemfile" => Some(ProjectKind::Ruby),
         "composer.json" => Some(ProjectKind::Php),
-        "Makefile" => Some(ProjectKind::Generic),
+        "Makefile"
+        | "justfile"
+        | "Justfile"
+        | "compose.yaml"
+        | "compose.yml"
+        | "docker-compose.yaml"
+        | "docker-compose.yml" => Some(ProjectKind::Generic),
         _ => None,
     }
 }
@@ -521,6 +527,12 @@ pub fn find_project_root(cwd: &Path) -> Option<(PathBuf, ProjectKind)> {
             "pom.xml",
             "build.gradle",
             "Makefile",
+            "justfile",
+            "Justfile",
+            "compose.yaml",
+            "compose.yml",
+            "docker-compose.yaml",
+            "docker-compose.yml",
             "Gemfile",
             "composer.json",
         ] {
