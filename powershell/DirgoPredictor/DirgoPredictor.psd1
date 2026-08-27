@@ -1,6 +1,6 @@
 @{
     RootModule = 'DirgoPredictor.dll'
-    ModuleVersion = '0.5.0'
+    ModuleVersion = '0.5.1'
     GUID = '531a90d6-192f-46c7-94cb-2c81413eed9b'
     Author = 'Dirgo contributors'
     CompanyName = 'Dirgo'

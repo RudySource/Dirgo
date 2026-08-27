@@ -4,6 +4,12 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-27
+
+### Fixed
+
+- Keep the Unix-only project-cache symlink test import out of Windows builds so the strict cross-platform Clippy gate passes.
+
 ## [0.5.0] - 2026-08-26
 
 ### Added

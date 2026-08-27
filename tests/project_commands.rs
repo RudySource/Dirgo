@@ -1,6 +1,8 @@
+#[cfg(unix)]
+use dirgo::suggestions::claim_project_command_refresh;
 use dirgo::suggestions::{
-    claim_project_command_refresh, load_cached_project_command_snapshot,
-    load_project_command_snapshot, refresh_project_command_cache,
+    load_cached_project_command_snapshot, load_project_command_snapshot,
+    refresh_project_command_cache,
 };
 
 #[test]
