@@ -335,11 +335,13 @@ expect -exact "DGO-LIVE> "
 # Very short terminals preserve the one-third height budget by hiding detail.
 send -- "stty rows 15\r"
 expect -exact "DGO-LIVE> "
-send -- "git co"
+send -- "git cl"
 expect {
-    -re {(?s)DIRGO.*suggestions.*commit.*\[Esc\] Close} {
+    -re {(?s)DIRGO.*suggestions.*clone.*\[Esc\] Close} {
         set short_preview $expect_out(buffer)
-        if {[string first "Record changes to the repository" $short_preview] >= 0 || [string first "↳" $short_preview] >= 0} {
+        set current_panel_start [string last "DIRGO" $short_preview]
+        set short_preview [string range $short_preview $current_panel_start end]
+        if {[string first "Clone a repository" $short_preview] >= 0 || [string first "↳" $short_preview] >= 0} {
             puts stderr "short terminal rendered a detail row beyond its height budget"
             send -- "\003exit\r"
             expect eof
