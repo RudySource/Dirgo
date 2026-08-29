@@ -426,7 +426,7 @@ mod tests {
         });
         let output = terminal.backend().to_string();
 
-        assert!(output.contains("● DIRGO 0.5"));
+        assert!(output.contains("● DIRGO 0.6"));
         assert!(output.contains("1–2 of 2"));
         assert!(output.contains("Record changes to the repository"));
         assert!(output.contains("Tab/Enter  Insert"));

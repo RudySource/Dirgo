@@ -14,8 +14,8 @@ use crate::{
     DirgoError, Result,
     actions::Action,
     cli::{
-        BookmarkCommand, Cli, Command, CompletionOutputFormat, ConfigCommand, ImportSource,
-        QueryArgs, ResolveArgs, SuggestionsCommand, SuggestionsHistoryCommand,
+        BookmarkCommand, Cli, Command, CompletionOutputFormat, ConfigCommand, HistoryScopeArgs,
+        ImportSource, QueryArgs, ResolveArgs, SuggestionsCommand, SuggestionsHistoryCommand,
         UpdateNotificationMode,
     },
     config::Config,
@@ -27,10 +27,12 @@ use crate::{
     shell,
     state::{StateStore, read_suggestion_context},
     suggestions::{
-        CommandCatalog, CommandHistoryStore, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
-        SuggestionResponse, claim_project_command_refresh, decode_request_line,
-        encode_response_line, load_cached_project_command_snapshot, pick_suggestion,
-        read_bounded_frame, read_command_history, refresh_project_command_cache,
+        CommandCatalog, CommandHistoryEventV2, CommandHistoryScope, CommandHistoryStore,
+        CommandOutcome, DecodedHistoryRecord, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
+        SuggestionResponse, claim_project_command_refresh, decode_history_record_frame,
+        decode_request_line, encode_response_line, is_sensitive_command,
+        load_cached_project_command_snapshot, pick_suggestion, read_bounded_frame,
+        read_command_history, read_history_snapshot, refresh_project_command_cache,
         write_suggestions_config,
     },
     terminal,
@@ -434,7 +436,7 @@ fn suggestions_command(
         }
         SuggestionsCommand::Doctor => {
             println!(
-                "Dirgo Suggestions Doctor\n\nconfiguration  valid\nsuggestions    {}\ncommand history {}\nprotocol       v{}\nstate          {}",
+                "Dirgo Suggestions Doctor\n\nconfiguration   valid\nsuggestions     {}\ncommand history {}\nprotocol        v{}\nstate           {}\n\nhistory capture\n  zsh           full\n  fish          full\n  bash          partial\n  powershell    partial",
                 enabled_label(config.suggestions.enabled),
                 enabled_label(config.suggestions.command_history),
                 crate::suggestions::PROTOCOL_VERSION,
@@ -456,18 +458,227 @@ fn suggestions_command(
                 write_suggestions_config(&paths.config_file, config)?;
                 println!("Command history disabled. Stored entries were not deleted.");
             }
-            SuggestionsHistoryCommand::Clear => {
+            SuggestionsHistoryCommand::Status { json } => {
+                if !paths.suggestions_state_file.exists() {
+                    if *json {
+                        println!(
+                            "{{\"schema_version\":2,\"event_count\":0,\"aggregate_count\":0}}"
+                        );
+                    } else {
+                        println!("History schema  v2\nEvents          0\nAggregates      0");
+                    }
+                } else {
+                    let status = read_history_snapshot(&paths.suggestions_state_file)?.status();
+                    if *json {
+                        println!("{}", serde_json::to_string(&status)?);
+                    } else {
+                        println!(
+                            "History schema  v{}\nEvents          {}\nAggregates      {}",
+                            status.schema_version, status.event_count, status.aggregate_count
+                        );
+                    }
+                }
+            }
+            SuggestionsHistoryCommand::List { scope, limit, json } => {
+                let selected = resolve_history_scope(scope, false)?;
+                let mut rows = if paths.suggestions_state_file.exists() {
+                    read_history_snapshot(&paths.suggestions_state_file)?
+                        .aggregates_in_scope(&selected)?
+                } else {
+                    Vec::new()
+                };
+                rows.truncate(usize::from(*limit));
+                if *json {
+                    println!("{}", serde_json::to_string(&rows)?);
+                } else {
+                    for row in rows {
+                        println!(
+                            "{}\t{}\t{}",
+                            row.last_used,
+                            row.use_count,
+                            safe_history_text(&row.command)
+                        );
+                    }
+                }
+            }
+            SuggestionsHistoryCommand::Inspect { event_id, json } => {
+                let event = if paths.suggestions_state_file.exists() {
+                    read_history_snapshot(&paths.suggestions_state_file)?
+                        .events
+                        .into_iter()
+                        .find(|event| event.id == *event_id)
+                } else {
+                    None
+                };
+                let event = event.ok_or_else(|| {
+                    DirgoError::User(format!("command-history event {event_id} does not exist"))
+                })?;
+                if *json {
+                    println!("{}", serde_json::to_string(&event)?);
+                } else {
+                    println!(
+                        "Event {}\nCommand   {}\nOutcome   {:?}\nStarted   {}\nDuration  {}",
+                        event.id,
+                        safe_history_text(&event.command),
+                        event.outcome,
+                        event.started_at,
+                        event
+                            .duration_ms
+                            .map_or_else(|| "unknown".into(), |value| format!("{value} ms"))
+                    );
+                }
+            }
+            SuggestionsHistoryCommand::Clear { scope } => {
                 if !paths.suggestions_state_file.exists() {
                     println!("Command history is already empty.");
                 } else {
-                    let removed =
-                        CommandHistoryStore::open(&paths.suggestions_state_file)?.clear()?;
-                    println!("Removed {removed} command-history entries.");
+                    let selected = resolve_history_scope(scope, true)?;
+                    let store = CommandHistoryStore::open(&paths.suggestions_state_file)?;
+                    let events = store.events_in_scope(&selected)?.len();
+                    let aggregates = store.aggregates_in_scope(&selected)?.len();
+                    store.clear_scope(&selected)?;
+                    println!("Removed {events} events and {aggregates} aggregates.");
                 }
+            }
+            SuggestionsHistoryCommand::Export {
+                scope,
+                output,
+                include_paths,
+                force,
+            } => {
+                let selected = resolve_history_scope(scope, false)?;
+                let snapshot = read_history_snapshot(&paths.suggestions_state_file)?;
+                export_history(
+                    &snapshot.events_in_scope(&selected),
+                    output,
+                    *include_paths,
+                    *force,
+                )?;
+                println!(
+                    "Exported command history to {}.",
+                    terminal::safe_path(output)
+                );
             }
         },
     }
     Ok(0)
+}
+
+fn resolve_history_scope(
+    args: &HistoryScopeArgs,
+    bare_means_all: bool,
+) -> Result<CommandHistoryScope> {
+    if args.all || (bare_means_all && args.project.is_none() && !args.global) {
+        return Ok(CommandHistoryScope::All);
+    }
+    if args.global {
+        return Ok(CommandHistoryScope::Global);
+    }
+    let path = args
+        .project
+        .clone()
+        .unwrap_or(std::env::current_dir().map_err(|error| DirgoError::io(".", error))?);
+    let path = path
+        .canonicalize()
+        .map_err(|error| DirgoError::io(&path, error))?;
+    match index::find_project_root(&path) {
+        Some((root, _)) => Ok(CommandHistoryScope::Project(root)),
+        None if args.project.is_some() => Err(DirgoError::User(format!(
+            "no project root found at or above {}",
+            path.display()
+        ))),
+        None => Ok(CommandHistoryScope::Global),
+    }
+}
+
+fn safe_history_text(command: &str) -> String {
+    let escaped = command
+        .chars()
+        .flat_map(char::escape_default)
+        .take(240)
+        .collect::<String>();
+    if escaped.len() < command.len() {
+        format!("{escaped}…")
+    } else {
+        escaped
+    }
+}
+
+fn export_history(
+    events: &[CommandHistoryEventV2],
+    output: &Path,
+    include_paths: bool,
+    force: bool,
+) -> Result<()> {
+    use std::fs::OpenOptions;
+    if std::fs::symlink_metadata(output).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(DirgoError::User(
+            "refusing to export through a symlink target".into(),
+        ));
+    }
+    if output.exists() && !force {
+        return Err(DirgoError::User(format!(
+            "{} already exists; pass --force to replace it",
+            output.display()
+        )));
+    }
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|error| DirgoError::io(parent, error))?;
+    let name = output
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or(DirgoError::NonUtf8Path)?;
+    let temp = parent.join(format!(
+        ".{name}.dirgo-{}-{}.tmp",
+        std::process::id(),
+        unix_now()
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|error| DirgoError::io(&temp, error))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| DirgoError::io(&temp, error))?;
+    }
+    for event in events {
+        let mut exported_event = serde_json::Map::new();
+        exported_event.insert("id".into(), event.id.into());
+        exported_event.insert("command".into(), event.command.clone().into());
+        exported_event.insert("started_at".into(), event.started_at.into());
+        exported_event.insert(
+            "duration_ms".into(),
+            serde_json::to_value(event.duration_ms)?,
+        );
+        exported_event.insert("exit_code".into(), serde_json::to_value(event.exit_code)?);
+        exported_event.insert("outcome".into(), serde_json::to_value(event.outcome)?);
+        exported_event.insert(
+            "session_id".into(),
+            serde_json::to_value(&event.session_id)?,
+        );
+        if include_paths {
+            exported_event.insert("cwd".into(), serde_json::to_value(&event.cwd)?);
+            exported_event.insert(
+                "project_root".into(),
+                serde_json::to_value(&event.project_root)?,
+            );
+        }
+        let row = serde_json::json!({
+            "format": "dirgo-command-history",
+            "version": 1,
+            "event": exported_event,
+        });
+        writeln!(file, "{}", serde_json::to_string(&row)?)
+            .map_err(|error| DirgoError::io(&temp, error))?;
+    }
+    file.sync_all()
+        .map_err(|error| DirgoError::io(&temp, error))?;
+    drop(file);
+    crate::suggestions::settings::replace_file(&temp, output)?;
+    Ok(())
 }
 
 fn enabled_label(enabled: bool) -> &'static str {
@@ -633,16 +844,43 @@ fn hidden_suggest_record(paths: &AppPaths, config: &Config) -> Result<i32> {
             "command history entry exceeds 65536 bytes".into(),
         ));
     }
-    while matches!(input.last(), Some(b'\n' | b'\r')) {
-        input.pop();
+    let decoded =
+        decode_history_record_frame(&input).map_err(|error| DirgoError::User(error.to_string()))?;
+    let command = match &decoded {
+        DecodedHistoryRecord::LegacyCommand(command) => command.as_str(),
+        DecodedHistoryRecord::V2(frame) => frame.command.as_str(),
+    };
+    if command.starts_with(' ') || is_sensitive_command(command, &config.suggestions.deny_patterns)
+    {
+        return Ok(0);
     }
-    let command = std::str::from_utf8(&input)
-        .map_err(|_| DirgoError::User("command history entry is not valid UTF-8".into()))?;
-    CommandHistoryStore::open(&paths.suggestions_state_file)?.record(
-        command,
-        unix_now(),
-        &config.suggestions,
-    )?;
+    let store = CommandHistoryStore::open(&paths.suggestions_state_file)?;
+    match decoded {
+        DecodedHistoryRecord::LegacyCommand(command) => {
+            store.record(&command, unix_now(), &config.suggestions)?;
+        }
+        DecodedHistoryRecord::V2(frame) => {
+            let cwd = frame
+                .cwd
+                .canonicalize()
+                .map_err(|error| DirgoError::io(&frame.cwd, error))?;
+            let project_root = index::find_project_root(&cwd).map(|(root, _)| root);
+            store.record_event(
+                CommandHistoryEventV2 {
+                    id: 0,
+                    command: frame.command,
+                    started_at: frame.started_at,
+                    duration_ms: frame.duration_ms,
+                    cwd,
+                    project_root,
+                    exit_code: frame.exit_code,
+                    outcome: CommandOutcome::from_exit_code(frame.exit_code),
+                    session_id: frame.session_id,
+                },
+                &config.suggestions,
+            )?;
+        }
+    }
     Ok(0)
 }
 

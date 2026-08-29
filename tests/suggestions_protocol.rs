@@ -1,8 +1,9 @@
 use dirgo::suggestions::{
-    MAX_REQUEST_BYTES, PROTOCOL_VERSION, ShellKind, Suggestion, SuggestionPresentation,
-    SuggestionRequest, SuggestionResponse, SuggestionSource, TextEdit, apply_text_edit,
-    decode_request_line, encode_response_line, read_bounded_frame, sanitize_suggestion,
-    visible_result_limit,
+    CommandHistoryAggregateV2, CommandHistoryEventV2, CommandHistoryRecordFrame, CommandOutcome,
+    DecodedHistoryRecord, HISTORY_RECORD_PROTOCOL_VERSION, MAX_REQUEST_BYTES, PROTOCOL_VERSION,
+    ShellKind, Suggestion, SuggestionPresentation, SuggestionRequest, SuggestionResponse,
+    SuggestionSource, TextEdit, apply_text_edit, decode_history_record_frame, decode_request_line,
+    encode_response_line, read_bounded_frame, sanitize_suggestion, visible_result_limit,
 };
 
 #[test]
@@ -180,4 +181,142 @@ fn bounded_frame_reader_drains_an_oversized_frame_before_the_next_request() {
         55
     );
     assert!(read_bounded_frame(&mut reader).expect("eof").is_none());
+}
+
+#[test]
+fn history_record_v2_round_trips_context_and_accepts_legacy_command_frames() {
+    let frame = CommandHistoryRecordFrame {
+        protocol_version: HISTORY_RECORD_PROTOCOL_VERSION,
+        command: "cargo test --workspace".into(),
+        cwd: "/tmp/project/src".into(),
+        exit_code: Some(0),
+        duration_ms: Some(1_234),
+        session_id: Some("zsh-session-42".into()),
+        shell: ShellKind::Zsh,
+        started_at: 1_787_900_000,
+    };
+    let encoded = serde_json::to_vec(&frame).expect("record json");
+
+    assert_eq!(
+        decode_history_record_frame(&encoded).expect("v2 record"),
+        DecodedHistoryRecord::V2(frame)
+    );
+    assert_eq!(
+        decode_history_record_frame(b"cargo test --workspace\n").expect("legacy record"),
+        DecodedHistoryRecord::LegacyCommand("cargo test --workspace".into())
+    );
+}
+
+#[test]
+fn history_record_v2_accepts_shell_safe_nul_framing() {
+    let input =
+        b"DGOH2\x00cargo test\x00/tmp/project\x001\x00345\x00zsh-42\x00zsh\x001800000000\x00";
+    let DecodedHistoryRecord::V2(frame) = decode_history_record_frame(input).expect("nul frame")
+    else {
+        panic!("expected v2 frame");
+    };
+    assert_eq!(frame.command, "cargo test");
+    assert_eq!(frame.exit_code, Some(1));
+    assert_eq!(frame.duration_ms, Some(345));
+    assert_eq!(frame.session_id.as_deref(), Some("zsh-42"));
+    assert_eq!(frame.shell, ShellKind::Zsh);
+}
+
+#[test]
+fn history_record_decoder_rejects_invalid_metadata_and_bounds() {
+    let valid = CommandHistoryRecordFrame {
+        protocol_version: HISTORY_RECORD_PROTOCOL_VERSION,
+        command: "cargo test".into(),
+        cwd: "/tmp/project".into(),
+        exit_code: Some(1),
+        duration_ms: None,
+        session_id: Some("fish-session-7".into()),
+        shell: ShellKind::Fish,
+        started_at: 1_787_900_000,
+    };
+
+    for invalid in [
+        CommandHistoryRecordFrame {
+            command: "cargo test\nrm -rf ignored".into(),
+            ..valid.clone()
+        },
+        CommandHistoryRecordFrame {
+            cwd: "/tmp/project\nother".into(),
+            ..valid.clone()
+        },
+        CommandHistoryRecordFrame {
+            session_id: Some("session\u{1b}".into()),
+            ..valid.clone()
+        },
+        CommandHistoryRecordFrame {
+            started_at: 0,
+            ..valid.clone()
+        },
+        CommandHistoryRecordFrame {
+            protocol_version: 99,
+            ..valid.clone()
+        },
+    ] {
+        let encoded = serde_json::to_vec(&invalid).expect("invalid record json");
+        assert!(
+            decode_history_record_frame(&encoded).is_err(),
+            "invalid frame unexpectedly decoded: {invalid:?}"
+        );
+    }
+
+    assert!(decode_history_record_frame(b"\n").is_err());
+    assert!(decode_history_record_frame(&vec![b'x'; MAX_REQUEST_BYTES + 1]).is_err());
+}
+
+#[test]
+fn context_engine_domain_types_preserve_unknowns_and_outcome_semantics() {
+    assert_eq!(
+        CommandOutcome::from_exit_code(Some(0)),
+        CommandOutcome::Success
+    );
+    assert_eq!(
+        CommandOutcome::from_exit_code(Some(17)),
+        CommandOutcome::Failure
+    );
+    assert_eq!(
+        CommandOutcome::from_exit_code(None),
+        CommandOutcome::Unknown
+    );
+
+    let event = CommandHistoryEventV2 {
+        id: 7,
+        command: "cargo test".into(),
+        started_at: 1_787_900_000,
+        duration_ms: Some(2_500),
+        cwd: "/tmp/project".into(),
+        project_root: Some("/tmp/project".into()),
+        exit_code: Some(0),
+        outcome: CommandOutcome::Success,
+        session_id: Some("zsh-session-42".into()),
+    };
+    let event_json = serde_json::to_string(&event).expect("event json");
+    assert_eq!(
+        serde_json::from_str::<CommandHistoryEventV2>(&event_json).expect("event decode"),
+        event
+    );
+
+    let legacy = CommandHistoryAggregateV2 {
+        scope_key: "global".into(),
+        command: "git status".into(),
+        use_count: 9,
+        success_count: 0,
+        failure_count: 0,
+        unknown_count: 9,
+        last_used: 1_787_800_000,
+        last_success: None,
+        last_failure: None,
+        total_duration_ms: 0,
+        measured_duration_count: 0,
+    };
+    let aggregate_json = serde_json::to_string(&legacy).expect("aggregate json");
+    assert_eq!(
+        serde_json::from_str::<CommandHistoryAggregateV2>(&aggregate_json)
+            .expect("aggregate decode"),
+        legacy
+    );
 }

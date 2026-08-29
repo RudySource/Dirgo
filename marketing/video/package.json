@@ -1,6 +1,6 @@
 {
   "name": "dirgo-product-video",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Deterministic Remotion compositions for Dirgo product media",
   "scripts": {

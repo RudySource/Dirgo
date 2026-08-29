@@ -7,6 +7,7 @@ use std::{
 
 use assert_cmd::Command;
 use dirgo::suggestions::{
+    CommandHistoryRecordFrame, CommandHistoryStore, HISTORY_RECORD_PROTOCOL_VERSION,
     PROTOCOL_VERSION, ShellKind, SuggestionRequest, SuggestionResponse, SuggestionSource,
 };
 use predicates::prelude::*;
@@ -47,6 +48,279 @@ impl Fixture {
 
 fn toml_string(path: &Path) -> String {
     format!("{:?}", path.display().to_string())
+}
+
+#[test]
+fn hidden_record_v2_derives_project_and_persists_completed_command_context() {
+    let fixture = Fixture::new();
+    let project = fixture.temp.path().join("filesystem/Projects/Punk");
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname='punk'\nversion='0.1.0'\n",
+    )
+    .expect("project marker");
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    fixture
+        .command()
+        .args(["suggestions", "history", "enable"])
+        .assert()
+        .success();
+    let frame = CommandHistoryRecordFrame {
+        protocol_version: HISTORY_RECORD_PROTOCOL_VERSION,
+        command: "cargo test".into(),
+        cwd: project.join("src"),
+        exit_code: Some(1),
+        duration_ms: Some(345),
+        session_id: Some("zsh-42".into()),
+        shell: ShellKind::Zsh,
+        started_at: 1_800_000_000,
+    };
+    fs::create_dir_all(&frame.cwd).expect("nested cwd");
+
+    fixture
+        .command()
+        .arg("__suggest-record")
+        .write_stdin(serde_json::to_vec(&frame).expect("frame"))
+        .assert()
+        .success();
+
+    let store =
+        CommandHistoryStore::open(&fixture.temp.path().join("state/dirgo/suggestions.redb"))
+            .expect("history store");
+    let events = store.all_events().expect("events");
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].cwd,
+        frame.cwd.canonicalize().expect("canonical cwd")
+    );
+    assert_eq!(
+        events[0].project_root,
+        Some(project.canonicalize().expect("root"))
+    );
+    assert_eq!(events[0].exit_code, Some(1));
+    assert_eq!(events[0].duration_ms, Some(345));
+    assert_eq!(events[0].session_id.as_deref(), Some("zsh-42"));
+}
+
+#[test]
+fn rejected_sensitive_or_private_commands_never_create_history_storage() {
+    for command in ["export API_TOKEN=secret", " private command"] {
+        let fixture = Fixture::new();
+        fixture
+            .command()
+            .args(["suggestions", "enable"])
+            .assert()
+            .success();
+        fixture
+            .command()
+            .args(["suggestions", "history", "enable"])
+            .assert()
+            .success();
+        fixture
+            .command()
+            .arg("__suggest-record")
+            .write_stdin(command)
+            .assert()
+            .success();
+        assert!(
+            !fixture
+                .temp
+                .path()
+                .join("state/dirgo/suggestions.redb")
+                .exists()
+        );
+    }
+}
+
+#[test]
+fn history_management_is_scoped_read_only_and_exports_redacted_jsonl() {
+    let fixture = Fixture::new();
+    let project = fixture.temp.path().join("filesystem/Projects/Punk");
+    let outside = fixture.temp.path().join("outside");
+    fs::create_dir_all(&outside).expect("outside cwd");
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname='punk'\nversion='0.1.0'\n",
+    )
+    .expect("project marker");
+    fixture
+        .command()
+        .args(["suggestions", "enable"])
+        .assert()
+        .success();
+    fixture
+        .command()
+        .args(["suggestions", "history", "enable"])
+        .assert()
+        .success();
+    for (command, cwd, at) in [
+        ("cargo test", project.as_path(), 1_800_000_001),
+        ("cargo test", project.as_path(), 1_800_000_002),
+        ("git status", outside.as_path(), 1_800_000_003),
+    ] {
+        let frame = CommandHistoryRecordFrame {
+            protocol_version: HISTORY_RECORD_PROTOCOL_VERSION,
+            command: command.into(),
+            cwd: cwd.into(),
+            exit_code: Some(0),
+            duration_ms: Some(12),
+            session_id: Some("session-test".into()),
+            shell: ShellKind::Zsh,
+            started_at: at,
+        };
+        fixture
+            .command()
+            .arg("__suggest-record")
+            .write_stdin(serde_json::to_vec(&frame).expect("frame"))
+            .assert()
+            .success();
+    }
+    let database = fixture.temp.path().join("state/dirgo/suggestions.redb");
+    let before = fs::read(&database).expect("database bytes");
+
+    fixture
+        .command()
+        .args(["suggestions", "history", "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"event_count\":3"));
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "list",
+            "--project",
+            project.to_str().expect("path"),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("cargo test")
+                .and(predicate::str::contains("git status").not()),
+        );
+    fixture
+        .command()
+        .args(["suggestions", "history", "inspect", "1", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"duration_ms\":12"));
+    assert_eq!(fs::read(&database).expect("database after reads"), before);
+
+    let export = fixture.temp.path().join("exports/history.jsonl");
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "export",
+            "--project",
+            project.to_str().expect("path"),
+            "--output",
+            export.to_str().expect("export path"),
+        ])
+        .assert()
+        .success();
+    let lines = fs::read_to_string(&export).expect("export");
+    assert_eq!(lines.lines().count(), 2);
+    assert!(lines.contains("dirgo-command-history"));
+    assert!(!lines.contains(project.to_str().expect("path")));
+    let row: serde_json::Value =
+        serde_json::from_str(lines.lines().next().expect("row")).expect("jsonl");
+    assert!(row["event"].get("cwd").is_none());
+    assert_eq!(fs::read(&database).expect("database after export"), before);
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "export",
+            "--all",
+            "--output",
+            export.to_str().expect("export path"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "export",
+            "--project",
+            project.to_str().expect("path"),
+            "--output",
+            export.to_str().expect("export path"),
+            "--include-paths",
+            "--force",
+        ])
+        .assert()
+        .success();
+    let included = fs::read_to_string(&export).expect("path-inclusive export");
+    assert!(included.contains(project.to_str().expect("path")));
+    assert_eq!(included.lines().count(), 2);
+    assert_eq!(
+        fs::read(&database).expect("database after forced export"),
+        before
+    );
+}
+
+#[test]
+fn explicit_project_scope_requires_a_project_root() {
+    let fixture = Fixture::new();
+    let outside = fixture.temp.path().join("outside");
+    fs::create_dir_all(&outside).expect("outside directory");
+
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "list",
+            "--project",
+            outside.to_str().expect("path"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("project root"));
+}
+
+#[cfg(unix)]
+#[test]
+fn history_export_refuses_a_symlink_destination() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new();
+    let target = fixture.temp.path().join("target.jsonl");
+    let link = fixture.temp.path().join("history.jsonl");
+    fs::write(&target, "keep me\n").expect("target");
+    symlink(&target, &link).expect("symlink");
+    fs::create_dir_all(fixture.temp.path().join("state/dirgo")).expect("state directory");
+    CommandHistoryStore::open(&fixture.temp.path().join("state/dirgo/suggestions.redb"))
+        .expect("history database");
+
+    fixture
+        .command()
+        .args([
+            "suggestions",
+            "history",
+            "export",
+            "--global",
+            "--output",
+            link.to_str().expect("path"),
+            "--force",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("symlink"));
+    assert_eq!(fs::read_to_string(target).expect("target"), "keep me\n");
 }
 
 fn assert_path_suffix(value: &str, suffix: &str) {

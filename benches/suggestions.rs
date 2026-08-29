@@ -4,8 +4,8 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dirgo::{
     model::DirectoryRecord,
     suggestions::{
-        CommandCatalog, PROTOCOL_VERSION, ShellKind, SuggestionData, SuggestionEngine,
-        SuggestionRequest,
+        CommandCatalog, CommandHistoryEntry, PROTOCOL_VERSION, ShellKind, SuggestionData,
+        SuggestionEngine, SuggestionRequest,
     },
 };
 
@@ -92,6 +92,32 @@ fn suggestions(c: &mut Criterion) {
         BenchmarkId::new("warm_prefix", "nested_command_spec"),
         &nested_request,
         |bencher, request| bencher.iter(|| command_engine.suggest(request)),
+    );
+
+    let history = (0..10_000)
+        .map(|index| {
+            let mut entry = CommandHistoryEntry::new(
+                format!("cargo history command-{index:05}"),
+                1,
+                index as u64,
+            );
+            entry.scope_key = "global".into();
+            entry
+        })
+        .collect();
+    let history_engine = SuggestionEngine::new(SuggestionData {
+        command_history: history,
+        ..SuggestionData::default()
+    });
+    let history_request = SuggestionRequest {
+        cwd: std::env::temp_dir(),
+        before_cursor: "cargo history".into(),
+        ..nested_request.clone()
+    };
+    c.bench_with_input(
+        BenchmarkId::new("context_history", "10k_aggregates"),
+        &history_request,
+        |bencher, request| bencher.iter(|| history_engine.suggest(request)),
     );
 }
 

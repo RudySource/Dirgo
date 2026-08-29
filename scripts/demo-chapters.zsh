@@ -6,7 +6,7 @@ function dirgo-demo-chapter() {
   (( DGO_DEMO_SCENE += 1 ))
   zle -I
   print -n $'\e[2J\e[H'
-  print -P '  %F{#30D158}%BDIRGO 0.5%b%f'
+  print -P '  %F{#30D158}%BDIRGO 0.6%b%f'
 
   case $DGO_DEMO_SCENE in
     1)

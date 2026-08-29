@@ -133,6 +133,41 @@ fn command_history_is_prefix_ranked_deduplicated_and_sanitized() {
 }
 
 #[test]
+fn command_history_prefers_current_project_cwd_and_reliable_success() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let current = temp.path().join("current");
+    let other = temp.path().join("other");
+    std::fs::create_dir_all(current.join("src")).expect("current");
+    std::fs::create_dir_all(&other).expect("other");
+    std::fs::write(current.join("Cargo.toml"), "[workspace]").expect("marker");
+    std::fs::write(other.join("Cargo.toml"), "[workspace]").expect("marker");
+
+    let mut local = CommandHistoryEntry::new("cargo test --workspace", 4, 200);
+    local.scope_key = format!("project:{}", current.display());
+    local.success_count = 4;
+    local.recent_cwds.push(current.join("src"));
+    let mut unrelated = CommandHistoryEntry::new("cargo test --all", 50, 300);
+    unrelated.scope_key = format!("project:{}", other.display());
+    unrelated.failure_count = 50;
+    let mut global = CommandHistoryEntry::new("cargo test --global", 100, 400);
+    global.scope_key = "global".into();
+    global.unknown_count = 100;
+
+    let suggestions = SuggestionEngine::new(SuggestionData {
+        command_history: vec![global, unrelated, local],
+        ..SuggestionData::default()
+    })
+    .suggest(&request(
+        ShellKind::Zsh,
+        current.join("src").to_str().expect("cwd"),
+        "cargo test --",
+    ));
+
+    assert_eq!(suggestions[0].edit.replacement, "cargo test --workspace");
+    assert_eq!(suggestions[0].source, SuggestionSource::CommandHistory);
+}
+
+#[test]
 fn command_history_drops_probable_credentials_before_ranking() {
     let data = SuggestionData {
         command_history: vec![

@@ -45,6 +45,11 @@ ends when its communication channel closes and is never a global daemon.
 **Command history**: Previously submitted shell commands. It is separate from
 navigation history and is used only after explicit opt-in.
 
+**Context event**: One completed command plus the context the active shell can
+safely provide: canonical cwd and project root, start time, optional exit code
+and duration, optional session ID, and a derived success/failure/unknown
+outcome.
+
 ## Product contract
 
 - The shell owns its buffer, prompt, key handling, and command execution.
@@ -62,6 +67,41 @@ navigation history and is used only after explicit opt-in.
   configurable.
 - Each shell uses its native affordances. Feature presentation may differ when
   the host shell does not expose equivalent APIs.
+
+## Context Engine
+
+Command history schema v2 stores bounded events and per-scope aggregates in the
+same private redb database. A canonical project-root path is the project
+identity; commands outside a recognized project use a global scope. Migration
+from schema v1 is one transaction and retains legacy counts as global rows with
+unknown outcomes, without inventing cwd, project, exit, duration, session, or
+event data. Unsupported future schemas are rejected without rewriting them.
+
+Recording filters private leading-space commands and probable secrets before
+opening storage. Event insertion, aggregate updates, and retention pruning
+commit together. The suggestion hot path opens the database read-only and uses
+only the newest 256 events to enrich bounded aggregates with cwd and session
+signals; management commands use the complete retained event set. A busy or
+unavailable optional history database contributes no candidates and cannot
+block the other providers.
+
+Ranking prefers the current canonical project, then exact/ancestor cwd and the
+current shell session. Success rate contributes only after three known
+outcomes, with smoothing for small samples and a recovery boost after a newer
+success. Global and migrated legacy rows remain useful fallbacks but cannot
+overwhelm current-project context, and project-declared `PROJ` candidates keep
+their precedence.
+
+Zsh and Fish capture completed commands with exit status and measured duration.
+Bash 4+ records completed commands and exit status through `PROMPT_COMMAND`,
+with duration unknown. PowerShell 7+ respects an existing PSReadLine history
+handler and records accepted commands with outcome and duration unknown where
+the supported API exposes no execution feedback.
+
+`dgo suggestions history status|list|inspect|clear|export` provides explicit
+management. Reads do not mutate database bytes. Export is private and atomic,
+refuses symlink destinations and existing files unless `--force` is supplied,
+and omits cwd/project paths unless `--include-paths` is explicitly requested.
 
 ## Live completion contract
 
@@ -136,7 +176,7 @@ without paying its full shell-memory cost up front.
 ## Project commands
 
 The project provider resolves the nearest existing project root and reads only
-bounded static data. Version 0.5 supports `package.json`, `Cargo.toml`, simple
+bounded static data. Since version 0.5 it supports `package.json`, `Cargo.toml`, simple
 Makefiles and Justfiles, and the `services` map in common Compose filenames.
 Dynamic targets, unsafe identifiers, oversized files, and malformed optional
 manifests are ignored. Script bodies are never shown or interpreted.

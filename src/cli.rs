@@ -359,8 +359,52 @@ pub enum SuggestionsHistoryCommand {
     Enable,
     /// Stop recording and reading command history
     Disable,
-    /// Remove all command-history records
-    Clear,
+    /// Show schema, storage, and aggregate counts
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// List command-history aggregates
+    List {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u16).range(1..=1000))]
+        limit: u16,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect one completed-command event by id
+    Inspect {
+        event_id: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove command-history records in the selected scope
+    Clear {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+    },
+    /// Export versioned JSON Lines without paths by default
+    Export {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+        #[arg(long)]
+        include_paths: bool,
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Debug, Args, Default)]
+pub struct HistoryScopeArgs {
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["global", "all"])]
+    pub project: Option<PathBuf>,
+    #[arg(long, conflicts_with_all = ["project", "all"])]
+    pub global: bool,
+    #[arg(long, conflicts_with_all = ["project", "global"])]
+    pub all: bool,
 }
 
 #[derive(Debug, Args)]

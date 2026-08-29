@@ -164,6 +164,31 @@ invokes a package manager, Cargo, Make, Just, Docker, or a completion script to
 build this list. The private cache is atomic, isolated per project, and capped
 at 64 projects.
 
+#### New in 0.6 · Context Engine
+
+When command history is explicitly enabled, Dirgo learns from completed commands
+locally. It keeps projects separate, prefers commands that worked in the current
+project and directory, and treats imported 0.5 history as neutral when outcome
+information is unavailable.
+
+```bash
+dgo suggestions history enable
+dgo suggestions history status
+dgo suggestions history list --project .
+dgo suggestions history inspect 42
+dgo suggestions history export --project . --output ./dirgo-history.jsonl
+```
+
+<p align="center">
+  <img src="docs/assets/dirgo-context-engine.gif" width="860" alt="Dirgo 0.6 Context Engine in a real terminal session: opt-in history, project-aware suggestions, scoped inspection, redacted export, and safe text insertion">
+</p>
+
+Commands containing likely credentials or a shell-native leading-space privacy
+marker are not recorded at all. Exports omit cwd and project paths unless
+`--include-paths` is supplied, refuse symlink destinations, and require
+`--force` to replace a file. Before intentionally downgrading to Dirgo 0.5,
+export or clear the opt-in history because 0.5 does not understand schema v2.
+
 ### Stay local and in control
 
 Dirgo has no account, cloud service, telemetry, or network request during normal
@@ -300,7 +325,11 @@ dgo support                    show support and security guidance
 dgo suggestions enable         enable local shell suggestions
 dgo suggestions status         inspect suggestion privacy settings
 dgo suggestions history enable opt in to filtered command history
-dgo suggestions history clear  erase stored command suggestions
+dgo suggestions history status inspect schema and local row counts
+dgo suggestions history list   list current-project command aggregates
+dgo suggestions history inspect EVENT_ID inspect one completed command
+dgo suggestions history clear  erase all history, or select a scope
+dgo suggestions history export export versioned, path-redacted JSONL
 dgo --update                   install the latest stable release
 dgo update-notifications off   disable new-version notices
 dgo update-notifications on    enable new-version notices
@@ -399,6 +428,8 @@ against your own index.
 
 - No telemetry, analytics, account, cloud sync, or network call during normal use.
 - Suggestions and command-history collection are independently disabled by default.
+- Context history stays local, project-scoped, bounded, and inspectable; likely secrets are never stored.
+- History exports omit filesystem paths by default and never overwrite without `--force`.
 - Paths cross the shell boundary as data, not executable shell text.
 - Human-facing output escapes terminal controls and bidirectional overrides.
 - Index publication is atomic; recovery preserves corrupted and unknown data.
@@ -412,10 +443,10 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.4** | Current stable release | Shell-native suggestions, command descriptions, paged Zsh panel, Bash/Fish completion, and the native PowerShell predictor. |
-| **0.5** | Release candidate in this branch | Project-scoped `PROJ` commands from bounded local manifests, background cache refresh, and project-first ranking on every supported shell. |
+| **0.5.1** | Current stable release | Project-scoped `PROJ` commands from bounded local manifests, background cache refresh, and project-first ranking. |
+| **0.6** | Release candidate in this branch | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 
-The 0.5 release is published only after the cross-platform release gate,
+The 0.6 release is published only after the cross-platform release gate,
 installer/package inspection, and final documentation review pass. Later
 features stay proposals until they have an implementation, regression coverage,
 and a real user-facing demo.

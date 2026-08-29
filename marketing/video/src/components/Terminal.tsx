@@ -59,7 +59,7 @@ export const Terminal = ({
               width: 7,
             }}
           />
-          DIRGO 0.5
+          DIRGO 0.6
         </span>
         <span style={{marginLeft: 'auto'}}>{label}</span>
       </div>

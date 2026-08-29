@@ -121,7 +121,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   typeset -g _DGO_LIVE_VERSION="$(command dgo --version 2>/dev/null)"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION#dgo }"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION%.*}"
-  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.5'
+  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.6'
   typeset -g _DGO_LIVE_ACCENT_STYLE='fg=#20bf55,bold'
   typeset -g _DGO_LIVE_SELECTED_STYLE='fg=#f4f7f8,bg=#102018,bold'
   typeset -g _DGO_LIVE_TEXT_STYLE='fg=#f4f7f8'
@@ -801,11 +801,29 @@ fi
 
 if command dgo __suggest-history-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   autoload -Uz add-zsh-hook 2>/dev/null
-  function _dgo_record_suggestion_history() {
-    setopt localoptions nobgnice
-    printf '%s\n' "$1" | command dgo __suggest-record >/dev/null 2>&1 &!
+  zmodload zsh/datetime 2>/dev/null
+  function _dgo_capture_suggestion_history() {
+    [[ "$1" == ' '* ]] && return
+    _DGO_HISTORY_COMMAND="$1"
+    _DGO_HISTORY_CWD="$PWD"
+    _DGO_HISTORY_STARTED="${EPOCHSECONDS:-0}"
+    _DGO_HISTORY_START_MS="$(( ${EPOCHREALTIME:-0} * 1000 ))"
   }
-  add-zsh-hook preexec _dgo_record_suggestion_history
+  function _dgo_record_suggestion_history() {
+    local previous_status=$? now_ms duration
+    [[ -z ${_DGO_HISTORY_COMMAND:-} ]] && return "$previous_status"
+    setopt localoptions nobgnice
+    now_ms="$(( ${EPOCHREALTIME:-0} * 1000 ))"
+    duration="$(( now_ms - ${_DGO_HISTORY_START_MS:-now_ms} ))"
+    duration="${duration%.*}"
+    printf 'DGOH2\0%s\0%s\0%s\0%s\0%s\0zsh\0%s\0' \
+      "$_DGO_HISTORY_COMMAND" "$_DGO_HISTORY_CWD" "$previous_status" "$duration" \
+      "${DGO_SESSION_ID:-}" "$_DGO_HISTORY_STARTED" | command dgo __suggest-record >/dev/null 2>&1 &!
+    unset _DGO_HISTORY_COMMAND _DGO_HISTORY_CWD _DGO_HISTORY_STARTED _DGO_HISTORY_START_MS
+    return "$previous_status"
+  }
+  add-zsh-hook preexec _dgo_capture_suggestion_history
+  add-zsh-hook precmd _dgo_record_suggestion_history
 fi
 "#;
 
@@ -896,7 +914,9 @@ if command dgo __suggest-history-enabled >/dev/null 2>&1; then
     while [[ "$entry" == [[:space:]]* ]]; do entry="${entry#?}"; done
     if [[ -n "$entry" && "$entry" != "$_DGO_HISTORY_LAST" ]]; then
       _DGO_HISTORY_LAST="$entry"
-      printf '%s\n' "$entry" | command dgo __suggest-record >/dev/null 2>&1 &
+      printf 'DGOH2\0%s\0%s\0%s\0\0%s\0bash\0%s\0' \
+        "$entry" "$PWD" "$previous_status" "${DGO_SESSION_ID:-}" "$(date +%s)" | \
+        command dgo __suggest-record >/dev/null 2>&1 &
     fi
     return "$previous_status"
   }
@@ -995,9 +1015,23 @@ if command dgo __suggest-enabled >/dev/null 2>&1
 end
 
 if command dgo __suggest-history-enabled >/dev/null 2>&1
-    function __dgo_record_suggestion_history --on-event fish_preexec
-        printf '%s\n' "$argv[1]" | command dgo __suggest-record >/dev/null 2>&1 &
+    function __dgo_capture_suggestion_history --on-event fish_preexec
+        string match -qr '^ ' -- "$argv[1]"; and return
+        set -g __dgo_history_command "$argv[1]"
+        set -g __dgo_history_cwd "$PWD"
+        set -g __dgo_history_started (date +%s)
+    end
+    function __dgo_record_suggestion_history --on-event fish_postexec
+        set -l previous_status $status
+        test -n "$__dgo_history_command"; or return $previous_status
+        set -l finished (date +%s)
+        set -l duration (math "($finished - $__dgo_history_started) * 1000")
+        printf 'DGOH2\0%s\0%s\0%s\0%s\0%s\0fish\0%s\0' \
+          "$__dgo_history_command" "$__dgo_history_cwd" "$previous_status" "$duration" \
+          "$DGO_SESSION_ID" "$__dgo_history_started" | command dgo __suggest-record >/dev/null 2>&1 &
         disown
+        set -e __dgo_history_command __dgo_history_cwd __dgo_history_started
+        return $previous_status
     end
 end
 "#;
@@ -1091,7 +1125,17 @@ function global:Send-DirgoSuggestionHistory {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $start
     if ($process.Start()) {
-        $process.StandardInput.WriteLine($CommandLine)
+        $payload = @{
+            protocol_version = 2
+            command = $CommandLine
+            cwd = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath
+            exit_code = $null
+            duration_ms = $null
+            session_id = $env:DGO_SESSION_ID
+            shell = 'power_shell'
+            started_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        } | ConvertTo-Json -Compress
+        $process.StandardInput.WriteLine($payload)
         $process.StandardInput.Close()
         $process.Dispose()
     }
@@ -1153,10 +1197,11 @@ if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
         $global:DirgoPreviousHistoryHandler = (Get-PSReadLineOption).AddToHistoryHandler
         Set-PSReadLineOption -AddToHistoryHandler {
             param([string]$line)
-            Send-DirgoSuggestionHistory -CommandLine $line
             if ($global:DirgoPreviousHistoryHandler) {
-                return $global:DirgoPreviousHistoryHandler.Invoke($line)
+                $accepted = $global:DirgoPreviousHistoryHandler.Invoke($line)
+                if (-not $accepted) { return $false }
             }
+            Send-DirgoSuggestionHistory -CommandLine $line
             return $true
         }
         $global:DirgoHistoryHandlerInstalled = $true
@@ -1350,6 +1395,25 @@ mod tests {
         assert!(script.contains("Set-PSReadLineOption -PredictionViewStyle ListView"));
         assert!(script.contains("Set-PSReadLineKeyHandler -Chord Ctrl+f"));
         assert!(!script.contains("AcceptLine"));
+    }
+
+    #[test]
+    fn history_adapters_capture_completed_command_context_without_debug_traps() {
+        let zsh = integration(Shell::Zsh);
+        assert!(zsh.contains("add-zsh-hook preexec _dgo_capture_suggestion_history"));
+        assert!(zsh.contains("add-zsh-hook precmd _dgo_record_suggestion_history"));
+        assert!(zsh.contains("DGOH2\\0"));
+        let bash = integration(Shell::Bash);
+        assert!(bash.contains("PROMPT_COMMAND"));
+        assert!(bash.contains("$previous_status"));
+        assert!(!bash.contains("trap DEBUG"));
+        let fish = integration(Shell::Fish);
+        assert!(fish.contains("--on-event fish_preexec"));
+        assert!(fish.contains("--on-event fish_postexec"));
+        let powershell = integration(Shell::PowerShell);
+        assert!(powershell.contains("protocol_version = 2"));
+        assert!(powershell.contains("ConvertTo-Json -Compress"));
+        assert!(powershell.contains("if (-not $accepted) { return $false }"));
     }
 
     #[test]

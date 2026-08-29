@@ -4,6 +4,23 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add the opt-in Context Engine with completed-command events containing available cwd, project root, exit status, duration, and shell session context.
+- Add project-scoped, success-aware command ranking with neutral treatment for legacy unknown outcomes and bounded cwd/session boosts.
+- Add `dgo suggestions history status`, scoped `list`, event `inspect`, scoped `clear`, and versioned JSONL `export` commands.
+
+### Changed
+
+- Migrate command history atomically to schema v2 while retaining legacy command counts and timestamps without inventing missing context.
+- Capture completed commands through bounded stdin frames in Zsh, Bash 4+, Fish, and PowerShell 7+, preserving existing prompt and completion hooks.
+
+### Security
+
+- Reject likely secrets and leading-space private-history commands before opening history storage; keep history independently opt-in and local.
+- Refuse unknown future schemas and symlink database/export targets, preserve malformed v1 databases as private recovery copies, and omit paths from exports unless `--include-paths` is explicit.
+- Publish exports through a private same-directory temporary file and require `--force` before replacing an existing destination.
+
 ## [0.5.1] - 2026-08-27
 
 ### Fixed

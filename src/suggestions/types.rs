@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u16 = 2;
+pub const HISTORY_RECORD_PROTOCOL_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,6 +12,73 @@ pub enum ShellKind {
     Bash,
     Fish,
     PowerShell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandHistoryRecordFrame {
+    pub protocol_version: u16,
+    pub command: String,
+    pub cwd: PathBuf,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+    pub session_id: Option<String>,
+    pub shell: ShellKind,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodedHistoryRecord {
+    V2(CommandHistoryRecordFrame),
+    LegacyCommand(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandOutcome {
+    Success,
+    Failure,
+    Unknown,
+}
+
+impl CommandOutcome {
+    pub fn from_exit_code(exit_code: Option<i32>) -> Self {
+        match exit_code {
+            Some(0) => Self::Success,
+            Some(_) => Self::Failure,
+            None => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandHistoryEventV2 {
+    pub id: u64,
+    pub command: String,
+    pub started_at: u64,
+    pub duration_ms: Option<u64>,
+    pub cwd: PathBuf,
+    pub project_root: Option<PathBuf>,
+    pub exit_code: Option<i32>,
+    pub outcome: CommandOutcome,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandHistoryAggregateV2 {
+    pub scope_key: String,
+    pub command: String,
+    pub use_count: u64,
+    pub success_count: u64,
+    pub failure_count: u64,
+    pub unknown_count: u64,
+    pub last_used: u64,
+    pub last_success: Option<u64>,
+    pub last_failure: Option<u64>,
+    pub total_duration_ms: u64,
+    pub measured_duration_count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
