@@ -264,8 +264,16 @@ fn history_management_is_scoped_read_only_and_exports_redacted_jsonl() {
         .assert()
         .success();
     let included = fs::read_to_string(&export).expect("path-inclusive export");
-    assert!(included.contains(project.to_str().expect("path")));
-    assert_eq!(included.lines().count(), 2);
+    let included_rows = included
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("included JSONL row"))
+        .collect::<Vec<_>>();
+    assert_eq!(included_rows.len(), 2);
+    let canonical_project = project.canonicalize().expect("canonical project");
+    assert!(included_rows.iter().all(|row| {
+        serde_json::from_value::<std::path::PathBuf>(row["event"]["project_root"].clone())
+            .is_ok_and(|path| path == canonical_project)
+    }));
     assert_eq!(
         fs::read(&database).expect("database after forced export"),
         before

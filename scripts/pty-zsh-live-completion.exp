@@ -332,52 +332,7 @@ expect {
 send -- "\003"
 expect -exact "DGO-LIVE> "
 
-# Very short terminals preserve the one-third height budget by hiding detail.
-send -- "stty rows 15\r"
-expect -exact "DGO-LIVE> "
-send -- "git cl"
-expect {
-    -re {(?s)DIRGO.*suggestions.*clone.*\[Esc\] Close} {
-        set short_preview $expect_out(buffer)
-        set current_panel_start [string last "DIRGO" $short_preview]
-        set short_preview [string range $short_preview $current_panel_start end]
-        if {[string first "Clone a repository" $short_preview] >= 0 || [string first "↳" $short_preview] >= 0} {
-            puts stderr "short terminal rendered a detail row beyond its height budget"
-            send -- "\003exit\r"
-            expect eof
-            file delete -force $sandbox
-            exit 1
-        }
-    }
-    timeout { puts stderr "short terminal did not render its bounded command list"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
-}
-send -- "\003"
-expect -exact "DGO-LIVE> "
-send -- "stty rows 24\r"
-expect -exact "DGO-LIVE> "
 send -- "stty columns 100\r"
-expect -exact "DGO-LIVE> "
-
-# The wide preview has a fully ASCII presentation when Unicode is disabled.
-send -- "export DGO_NO_UNICODE=1\r"
-expect -exact "DGO-LIVE> "
-send -- "git co"
-expect {
-    -re {(?s)\* DIRGO 0[.]6.*suggestions.*>  commit.*\| Record changes to the repository} {
-        set ascii_preview $expect_out(buffer)
-        if {[regexp {[·–›↑↓…↳│]} $ascii_preview]} {
-            puts stderr "DGO_NO_UNICODE wide preview emitted a Unicode UI glyph"
-            send -- "\003exit\r"
-            expect eof
-            file delete -force $sandbox
-            exit 1
-        }
-    }
-    timeout { puts stderr "DGO_NO_UNICODE wide preview did not render its ASCII layout"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
-}
-send -- "\003"
-expect -exact "DGO-LIVE> "
-send -- "unset DGO_NO_UNICODE\r"
 expect -exact "DGO-LIVE> "
 
 # A rendered model becomes unselectable as soon as the cursor snapshot changes.
@@ -436,6 +391,70 @@ send -- "exit 0\r"
 expect eof
 set result [wait]
 if {[lindex $result 3] != 0} {
+    file delete -force $sandbox
+    exit 1
+}
+
+# The wide ASCII preview uses its own mode-stable shell so changing Unicode
+# presentation cannot race with frames rendered by the main interaction flow.
+set env(DGO_NO_UNICODE) "1"
+spawn -noecho /bin/zsh -f
+expect -exact "DGO-BOOT> "
+send -- "stty rows 24 columns 100; PS1='DGO-ASCII> '; eval \"\$(\$DGO_BIN init zsh)\"; cd \"\$DGO_TEST_ROOT\"; print -r -- ASCII:ready\r"
+expect -exact "ASCII:ready"
+expect -exact "DGO-ASCII> "
+send -- "git co"
+expect {
+    -re {(?s)\* DIRGO 0[.]6.*suggestions.*>  commit.*\| Record changes to the repository} {
+        set ascii_preview $expect_out(buffer)
+        if {[regexp {[·–›↑↓…↳│]} $ascii_preview]} {
+            puts stderr "DGO_NO_UNICODE wide preview emitted a Unicode UI glyph"
+            send -- "\003exit\r"
+            expect eof
+            file delete -force $sandbox
+            exit 1
+        }
+    }
+    timeout { puts stderr "DGO_NO_UNICODE wide preview did not render its ASCII layout"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\003"
+expect -exact "DGO-ASCII> "
+send -- "exit 0\r"
+expect eof
+set ascii_result [wait]
+if {[lindex $ascii_result 3] != 0} {
+    file delete -force $sandbox
+    exit 1
+}
+unset env(DGO_NO_UNICODE)
+
+# Very short terminals use a fresh shell so no asynchronous frames from the
+# wide and expanded-panel scenarios can satisfy this height-budget assertion.
+spawn -noecho /bin/zsh -f
+expect -exact "DGO-BOOT> "
+send -- "stty rows 15 columns 82; PS1='DGO-SHORT> '; eval \"\$(\$DGO_BIN init zsh)\"; cd \"\$DGO_TEST_ROOT\"; print -r -- SHORT:ready rows=\$LINES\r"
+expect -exact "SHORT:ready rows=15"
+expect -exact "DGO-SHORT> "
+send -- "git cl"
+expect {
+    -re {(?s)DIRGO.*suggestions.*clone.*\[Esc\] Close} {
+        set short_preview $expect_out(buffer)
+        if {[string first "Clone a repository" $short_preview] >= 0 || [string first "↳" $short_preview] >= 0} {
+            puts stderr "short terminal rendered a detail row beyond its height budget"
+            send -- "\003exit\r"
+            expect eof
+            file delete -force $sandbox
+            exit 1
+        }
+    }
+    timeout { puts stderr "short terminal did not render its bounded command list"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\003"
+expect -exact "DGO-SHORT> "
+send -- "exit 0\r"
+expect eof
+set short_result [wait]
+if {[lindex $short_result 3] != 0} {
     file delete -force $sandbox
     exit 1
 }
