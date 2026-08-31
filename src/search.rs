@@ -295,6 +295,7 @@ fn fuzzy_candidates(
     let mut matcher_config = NucleoConfig::DEFAULT.match_paths();
     matcher_config.ignore_case = !normalized_query.chars().any(char::is_uppercase);
     let mut matcher = Matcher::new(matcher_config);
+    let path_segments = path_query_segments(normalized_query);
     let bookmarks_by_path: HashMap<&Path, &str> = context
         .bookmarks
         .values()
@@ -304,26 +305,21 @@ fn fuzzy_candidates(
     for record in records {
         let fuzzy = if normalized_query.is_empty() {
             0
-        } else {
-            let match_path = normalized_query
-                .chars()
-                .any(|character| character.is_whitespace() || character == '/');
-            let path_haystack;
-            let path_needle;
-            let (haystack, needle) = if match_path {
-                path_haystack = fuzzy_path_text(&record.display_path);
-                path_needle = fuzzy_path_text(normalized_query);
-                (path_haystack.as_str(), path_needle.as_str())
-            } else {
-                (record.basename.as_str(), normalized_query)
+        } else if let Some(segments) = &path_segments {
+            let Some(score) = ordered_path_score(&record.display_path, segments, &mut matcher)
+            else {
+                continue;
             };
+            score
+        } else {
             let mut haystack_buffer = Vec::new();
             let mut needle_buffer = Vec::new();
             matcher
                 .fuzzy_match(
-                    Utf32Str::new(haystack, &mut haystack_buffer),
-                    Utf32Str::new(needle, &mut needle_buffer),
+                    Utf32Str::new(&record.basename, &mut haystack_buffer),
+                    Utf32Str::new(normalized_query, &mut needle_buffer),
                 )
+                .map(u32::from)
                 .unwrap_or(0)
         };
         if !normalized_query.is_empty() && fuzzy == 0 {
@@ -350,6 +346,8 @@ fn fuzzy_candidates(
             score_breakdown,
             source: if normalized_query.is_empty() {
                 "browse"
+            } else if path_segments.is_some() {
+                "path"
             } else {
                 "fuzzy"
             },
@@ -496,17 +494,69 @@ fn common_ancestor_depth(left: &Path, right: &Path) -> usize {
         .count()
 }
 
-fn fuzzy_path_text(value: &str) -> String {
-    value
+fn path_query_segments(query: &str) -> Option<Vec<&str>> {
+    query
         .chars()
-        .map(|character| {
-            if matches!(character, '/' | '\\') {
-                ' '
-            } else {
-                character
-            }
+        .any(|character| character.is_whitespace() || matches!(character, '/' | '\\'))
+        .then(|| {
+            query
+                .split(|character: char| {
+                    character.is_whitespace() || matches!(character, '/' | '\\')
+                })
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>()
         })
-        .collect()
+        .filter(|segments| !segments.is_empty())
+}
+
+fn ordered_path_score(
+    display_path: &str,
+    query_segments: &[&str],
+    matcher: &mut Matcher,
+) -> Option<u32> {
+    let candidate_segments = display_path
+        .split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let mut next_index = 0_usize;
+    let mut total = 50_000_u32;
+    for query in query_segments {
+        let mut best = None;
+        for (offset, candidate) in candidate_segments[next_index..].iter().enumerate() {
+            let score = segment_match_score(candidate, query, matcher);
+            if score == 0 {
+                continue;
+            }
+            let index = next_index + offset;
+            let ranked = (score, std::cmp::Reverse(index));
+            if best.as_ref().is_none_or(|(_, current)| ranked > *current) {
+                best = Some((index, ranked));
+            }
+        }
+        let (matched_index, (score, _)) = best?;
+        total = total
+            .saturating_add(score)
+            .saturating_sub((matched_index.saturating_sub(next_index) as u32).saturating_mul(25));
+        next_index = matched_index + 1;
+    }
+    Some(total)
+}
+
+fn segment_match_score(candidate: &str, query: &str, matcher: &mut Matcher) -> u32 {
+    if smart_equal(candidate, query) {
+        return 10_000;
+    }
+    if smart_starts_with(candidate, query) {
+        return 8_000;
+    }
+    let mut candidate_buffer = Vec::new();
+    let mut query_buffer = Vec::new();
+    matcher
+        .fuzzy_match(
+            Utf32Str::new(candidate, &mut candidate_buffer),
+            Utf32Str::new(query, &mut query_buffer),
+        )
+        .map_or(0, |score| 1_000_u32.saturating_add(u32::from(score)))
 }
 
 #[cfg(test)]
@@ -913,6 +963,92 @@ mod tests {
             response.candidates[0].path,
             PathBuf::from("/work/punk/apps/frontend")
         );
+    }
+
+    #[test]
+    fn path_query_matches_ordered_segments_with_omitted_intermediates() {
+        let records = vec![
+            record("/home/Library/Application Support/Adobe/CEP"),
+            record("/home/Library/Other/Adobe/CEP-old"),
+        ];
+        let bookmarks = HashMap::new();
+        let history = HashMap::new();
+        let response = resolve(
+            &["library/adobe/cep".into()],
+            &SearchContext {
+                records: &records,
+                bookmarks: &bookmarks,
+                history: &history,
+                cwd: Path::new("/home"),
+                ranking: &RankingConfig::default(),
+            },
+            true,
+            true,
+        )
+        .expect("ordered path query");
+
+        assert_eq!(response.candidates.len(), 2);
+        assert_eq!(
+            response.candidates[0].path,
+            PathBuf::from("/home/Library/Application Support/Adobe/CEP")
+        );
+        assert_eq!(response.candidates[0].source, "path");
+    }
+
+    #[test]
+    fn windows_path_query_accepts_both_separators() {
+        let record = DirectoryRecord {
+            path: PathBuf::from("C:/Workspace/AppData/Roaming/Adobe/CEP"),
+            display_path: "C:\\Workspace\\AppData\\Roaming\\Adobe\\CEP".into(),
+            basename: "CEP".into(),
+            parent: PathBuf::from("C:/Workspace/AppData/Roaming/Adobe"),
+            depth: 7,
+            is_project_root: false,
+            project_kind: None,
+            last_seen: unix_now(),
+        };
+        let records = vec![record];
+        let bookmarks = HashMap::new();
+        let history = HashMap::new();
+        let context = SearchContext {
+            records: &records,
+            bookmarks: &bookmarks,
+            history: &history,
+            cwd: Path::new("C:/Workspace"),
+            ranking: &RankingConfig::default(),
+        };
+
+        for query in ["appdata/adobe/cep", "appdata\\adobe\\cep"] {
+            let response = resolve(&[query.into()], &context, true, true).expect("Windows path");
+            assert_eq!(response.candidates.len(), 1, "query {query}");
+            assert_eq!(response.candidates[0].source, "path");
+        }
+    }
+
+    #[test]
+    fn reordered_or_wrong_case_path_segments_do_not_match() {
+        let records = vec![
+            record("/home/Library/Application Support/Adobe/CEP"),
+            record("/home/library/Application Support/Adobe/CEP"),
+        ];
+        let bookmarks = HashMap::new();
+        let history = HashMap::new();
+        let context = SearchContext {
+            records: &records,
+            bookmarks: &bookmarks,
+            history: &history,
+            cwd: Path::new("/home"),
+            ranking: &RankingConfig::default(),
+        };
+
+        let reordered =
+            resolve(&["cep/adobe/library".into()], &context, true, true).expect("reordered path");
+        assert!(reordered.candidates.is_empty());
+
+        let smart_case =
+            resolve(&["Library/adobe/cep".into()], &context, true, true).expect("smart case path");
+        assert_eq!(smart_case.candidates.len(), 1);
+        assert!(smart_case.candidates[0].display_path.contains("/Library/"));
     }
 
     #[test]

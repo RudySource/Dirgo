@@ -75,12 +75,13 @@ for required_file in \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
   docs/dirgo-project-commands.tape docs/assets/dirgo-project-commands.gif \
   docs/assets/dirgo-context-engine.gif \
+  docs/assets/dirgo-workspace-palette.gif \
   docs/assets/dirgo-wordmark.png \
   install/dirgo-installer.sh install/dirgo-installer.ps1 \
   packaging/homebrew/dirgo.rb.template packaging/scoop/dirgo.json.template \
   scripts/demo-chapters.zsh scripts/demo-setup.sh scripts/render-homebrew-formula.sh \
-  scripts/render-scoop-manifest.sh scripts/render-context-engine-demo.sh scripts/repository-hygiene.sh \
-  scripts/pty-suggestions-smoke.exp scripts/pty-zsh-live-completion.exp \
+  scripts/render-scoop-manifest.sh scripts/render-context-engine-demo.sh scripts/render-workspace-palette-demo.sh scripts/repository-hygiene.sh \
+  scripts/pty-suggestions-smoke.exp scripts/pty-zsh-live-completion.exp scripts/pty-palette-smoke.exp \
   scripts/windows-suggestions-smoke.ps1 \
   powershell/DirgoPredictor/DirgoPredictor.cs \
   powershell/DirgoPredictor/DirgoPredictor.csproj \
@@ -131,6 +132,7 @@ expect scripts/pty-terminal-gates.exp
 expect scripts/pty-shell-matrix.exp
 DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
 expect scripts/pty-zsh-live-completion.exp
+expect scripts/pty-palette-smoke.exp
 DGO_FIXTURE_BIN="$build_root/release/dgo-fixture" \
   scripts/benchmark-cli.sh --directories 100 --samples 1
 

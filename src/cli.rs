@@ -204,6 +204,16 @@ pub enum Command {
     },
     /// Print the nearest project root
     Root,
+    /// Manage indexed search roots and focused system-folder scopes
+    Roots {
+        #[command(subcommand)]
+        command: RootsCommand,
+    },
+    /// Open the Workspace Palette without executing selected commands
+    Palette {
+        #[arg(value_name = "QUERY", help = "Optional initial palette query")]
+        query: Vec<String>,
+    },
     /// Resolve or choose among indexed project roots
     Repo {
         #[arg(value_name = "QUERY", help = "Optional project query")]
@@ -320,6 +330,22 @@ pub enum Command {
         #[arg(long)]
         output_path: PathBuf,
     },
+    #[command(name = "__palette-json", hide = true)]
+    PaletteJson {
+        #[arg(long)]
+        cwd: PathBuf,
+    },
+    #[command(name = "__palette-pick", hide = true)]
+    PalettePick {
+        #[arg(long, value_enum)]
+        shell: Shell,
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long)]
+        output_path: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        query: Option<String>,
+    },
     #[command(name = "__resolve", hide = true)]
     Resolve(ResolveArgs),
 }
@@ -328,6 +354,34 @@ pub enum Command {
 pub enum UpdateNotificationMode {
     On,
     Off,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RootsCommand {
+    /// List configured search roots and their health
+    List {
+        /// Emit deterministic machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add an existing directory to the search index
+    Add {
+        /// Directory to add
+        #[arg(value_name = "PATH", allow_hyphen_values = true)]
+        path: PathBuf,
+        /// Save without rebuilding the disposable index
+        #[arg(long)]
+        no_refresh: bool,
+    },
+    /// Remove a directory from the search index without deleting it
+    Remove {
+        /// Configured directory to remove
+        #[arg(value_name = "PATH", allow_hyphen_values = true)]
+        path: PathBuf,
+        /// Save without rebuilding the disposable index
+        #[arg(long)]
+        no_refresh: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

@@ -67,7 +67,7 @@ fi
 
 function dgo() {
     case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -105,6 +105,35 @@ function dgo() {
   return $resolve_status
 }
 
+if [[ -o interactive ]]; then
+  function _dgo_workspace_palette() {
+    local result_file contents frame payload
+    result_file="${TMPDIR:-/tmp}/dirgo-palette.$$.$RANDOM.$RANDOM"
+    if command dgo __palette-pick --shell zsh --cwd "$PWD" --output-path "$result_file" --query "$BUFFER"; then
+      [[ -f "$result_file" ]] && contents="$(<"$result_file")"
+    fi
+    command rm -f -- "$result_file"
+    [[ "$contents" == *$'\n'* ]] || return 0
+    frame="${contents%%$'\n'*}"
+    payload="${contents#*$'\n'}"
+    case "$frame" in
+      'DGP1 navigate')
+        if builtin cd -- "$payload"; then
+          BUFFER=''
+          CURSOR=0
+          zle reset-prompt
+        fi
+        ;;
+      'DGP1 insert')
+        BUFFER="$payload"
+        CURSOR=${#BUFFER}
+        ;;
+    esac
+  }
+  zle -N _dgo_workspace_palette
+  bindkey '^[p' _dgo_workspace_palette
+fi
+
 if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   autoload -Uz add-zle-hook-widget compinit is-at-least 2>/dev/null
   (( $+functions[compdef] )) || compinit -C
@@ -121,7 +150,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   typeset -g _DGO_LIVE_VERSION="$(command dgo --version 2>/dev/null)"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION#dgo }"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION%.*}"
-  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.6'
+  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.7'
   typeset -g _DGO_LIVE_ACCENT_STYLE='fg=#20bf55,bold'
   typeset -g _DGO_LIVE_SELECTED_STYLE='fg=#f4f7f8,bg=#102018,bold'
   typeset -g _DGO_LIVE_TEXT_STYLE='fg=#f4f7f8'
@@ -768,16 +797,28 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
     fi
   }
   function _dgo_pick_suggestion() {
-    local before="$LBUFFER" after="$RBUFFER" suggestion result_file
+    local before="$LBUFFER" after="$RBUFFER" contents frame payload result_file
     result_file="${TMPDIR:-/tmp}/dirgo-suggestion.$$.$RANDOM.$RANDOM"
     if command dgo __suggest-pick --shell zsh --cwd "$PWD" --request-path /dev/fd/3 --output-path "$result_file" 3< <(printf '%s\0%s\0' "$before" "$after"); then
-      [[ -f "$result_file" ]] && suggestion="$(<"$result_file")"
+      [[ -f "$result_file" ]] && contents="$(<"$result_file")"
     fi
     command rm -f -- "$result_file"
-    if [[ -n "$suggestion" ]]; then
-      BUFFER="${suggestion}${after}"
-      CURSOR=${#suggestion}
-    fi
+    [[ "$contents" == *$'\n'* ]] || return 0
+    frame="${contents%%$'\n'*}"
+    payload="${contents#*$'\n'}"
+    case "$frame" in
+      'DGS1 navigate')
+        if builtin cd -- "$payload"; then
+          BUFFER=''
+          CURSOR=0
+          zle reset-prompt
+        fi
+        ;;
+      'DGS1 insert')
+        BUFFER="${payload}${after}"
+        CURSOR=${#payload}
+        ;;
+    esac
   }
 
   zle -N _dgo_accept_suggestion
@@ -834,7 +875,7 @@ fi
 
 dgo() {
   case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -872,6 +913,33 @@ dgo() {
   return $status
 }
 
+if [[ $- == *i* ]] && (( BASH_VERSINFO[0] >= 4 )); then
+  _dgo_workspace_palette() {
+    local result_file contents frame payload
+    result_file="${TMPDIR:-/tmp}/dirgo-palette.$$.$RANDOM.$RANDOM"
+    if command dgo __palette-pick --shell bash --cwd "$PWD" --output-path "$result_file" --query "$READLINE_LINE"; then
+      [[ -f "$result_file" ]] && contents="$(<"$result_file")"
+    fi
+    command rm -f -- "$result_file"
+    [[ "$contents" == *$'\n'* ]] || return 0
+    frame="${contents%%$'\n'*}"
+    payload="${contents#*$'\n'}"
+    case "$frame" in
+      'DGP1 navigate')
+        if builtin cd -- "$payload"; then
+          READLINE_LINE=''
+          READLINE_POINT=0
+        fi
+        ;;
+      'DGP1 insert')
+        READLINE_LINE="$payload"
+        READLINE_POINT=${#READLINE_LINE}
+        ;;
+    esac
+  }
+  bind -x '"\ep":_dgo_workspace_palette'
+fi
+
 if command dgo __suggest-enabled >/dev/null 2>&1 && (( BASH_VERSINFO[0] >= 4 )); then
   if command dgo __suggest-native-enabled >/dev/null 2>&1; then
     source <(command dgo completions bash)
@@ -887,18 +955,29 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && (( BASH_VERSINFO[0] >= 4 ));
     fi
   }
   _dgo_pick_suggestion() {
-    local before after suggestion result_file
+    local before after contents frame payload result_file
     before="${READLINE_LINE:0:READLINE_POINT}"
     after="${READLINE_LINE:READLINE_POINT}"
     result_file="${TMPDIR:-/tmp}/dirgo-suggestion.$$.$RANDOM.$RANDOM"
     if command dgo __suggest-pick --shell bash --cwd "$PWD" --request-path /dev/fd/3 --output-path "$result_file" 3< <(printf '%s\0%s\0' "$before" "$after"); then
-      [[ -f "$result_file" ]] && suggestion="$(<"$result_file")"
+      [[ -f "$result_file" ]] && contents="$(<"$result_file")"
     fi
     command rm -f -- "$result_file"
-    if [[ -n "$suggestion" ]]; then
-      READLINE_LINE="${suggestion}${after}"
-      READLINE_POINT=${#suggestion}
-    fi
+    [[ "$contents" == *$'\n'* ]] || return 0
+    frame="${contents%%$'\n'*}"
+    payload="${contents#*$'\n'}"
+    case "$frame" in
+      'DGS1 navigate')
+        if builtin cd -- "$payload"; then
+          READLINE_LINE=''
+          READLINE_POINT=0
+        fi
+        ;;
+      'DGS1 insert')
+        READLINE_LINE="${payload}${after}"
+        READLINE_POINT=${#payload}
+        ;;
+    esac
   }
   bind -x '"\C-f":_dgo_accept_suggestion'
   bind -x '"\e[Z":_dgo_pick_suggestion'
@@ -938,7 +1017,7 @@ end
 function dgo --description 'Go anywhere. Instantly.'
     if test (count $argv) -gt 0
         switch "$argv[1]"
-            case setup init completions refresh query explain bench bookmarks bookmark import doctor stats config support suggestions update-notifications --update --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
+            case setup init completions refresh query explain bench root roots palette repo bookmarks bookmark import doctor stats config support suggestions update-notifications --update --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
                 command dgo $argv
                 return $status
         end
@@ -973,6 +1052,34 @@ function dgo --description 'Go anywhere. Instantly.'
     return $resolve_status
 end
 
+if status is-interactive
+    function __dgo_workspace_palette --description 'Open the Dirgo Workspace Palette'
+        set -l temp_root /tmp
+        set -q TMPDIR; and set temp_root $TMPDIR
+        set -l result_file "$temp_root/dirgo-palette.$fish_pid."(random)"."(random)
+        set -l contents
+        if command dgo __palette-pick --shell fish --cwd "$PWD" --output-path "$result_file" --query (commandline -b); and test -f "$result_file"
+            set contents (string collect <$result_file)
+        end
+        command rm -f -- "$result_file"
+        set -l parts (string split -m 1 \n -- "$contents")
+        test (count $parts) -eq 2; or return 0
+        set -l frame $parts[1]
+        set -l payload $parts[2]
+        switch "$frame"
+            case 'DGP1 navigate'
+                if builtin cd -- "$payload"
+                    commandline -r -- ''
+                    commandline -f repaint
+                end
+            case 'DGP1 insert'
+                commandline -r -- "$payload"
+                commandline -C (string length -- "$payload")
+        end
+    end
+    bind \ep __dgo_workspace_palette
+end
+
 if command dgo __suggest-enabled >/dev/null 2>&1
     if command dgo __suggest-native-enabled >/dev/null 2>&1
         command dgo completions fish | source
@@ -1000,14 +1107,24 @@ if command dgo __suggest-enabled >/dev/null 2>&1
             set temp_root $TMPDIR
         end
         set -l result_file "$temp_root/dirgo-suggestion.$fish_pid."(random)"."(random)
-        set -l suggestion
+        set -l contents
         if command dgo __suggest-pick --shell fish --cwd "$PWD" --request-path (printf '%s\0\0' "$buffer" | psub) --output-path "$result_file"; and test -f "$result_file"
-            set suggestion (string collect <$result_file)
+            set contents (string collect <$result_file)
         end
         command rm -f -- "$result_file"
-        if test -n "$suggestion"
-            commandline -r -- "$suggestion"
-            commandline -C (string length -- "$suggestion")
+        set -l parts (string split -m1 \n -- "$contents")
+        test (count $parts) -eq 2; or return
+        set -l frame $parts[1]
+        set -l payload $parts[2]
+        switch "$frame"
+        case 'DGS1 navigate'
+            if builtin cd -- "$payload"
+                commandline -r -- ''
+                commandline -C 0
+            end
+        case 'DGS1 insert'
+            commandline -r -- "$payload"
+            commandline -C (string length -- "$payload")
         end
     end
     bind \cf __dgo_accept_suggestion
@@ -1048,7 +1165,7 @@ function global:dgo {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DirgoArguments)
 
     $management = @('setup', 'init', 'completions', 'refresh', 'query', 'explain', 'bench',
-        'bookmarks', 'bookmark', 'import', 'doctor', 'stats', 'config', 'support',
+        'root', 'roots', 'palette', 'repo', 'bookmarks', 'bookmark', 'import', 'doctor', 'stats', 'config', 'support',
         'suggestions', 'update-notifications', '--update', '--open', '--finder', '--code',
         '--copy', '--print', '--refresh', '-r', '--doctor', '--bookmarks', '--forget',
         '--help', '-h', '--version', '-V')
@@ -1082,6 +1199,41 @@ function global:dgo {
         return
     }
     $global:LASTEXITCODE = $resolveStatus
+}
+
+if (Get-Module -ListAvailable PSReadLine) {
+    Set-PSReadLineKeyHandler -Chord Alt+p -BriefDescription 'DirgoPalette' -LongDescription 'Open the Dirgo Workspace Palette' -ScriptBlock {
+        param($key, $arg)
+        $line = $null
+        $cursor = 0
+        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+        $resultFile = Join-Path ([System.IO.Path]::GetTempPath()) "dirgo-palette.$PID.$([guid]::NewGuid().ToString('N'))"
+        try {
+            & $global:DirgoExecutablePath __palette-pick --shell powershell --cwd (Get-Location).Path --output-path $resultFile --query $line
+            if (-not (Test-Path -LiteralPath $resultFile -PathType Leaf)) { return }
+            $contents = [System.IO.File]::ReadAllText($resultFile)
+            $separator = $contents.IndexOf("`n", [System.StringComparison]::Ordinal)
+            if ($separator -lt 0) { return }
+            $frame = $contents.Substring(0, $separator).TrimEnd("`r")
+            $payload = $contents.Substring($separator + 1)
+            switch ($frame) {
+                'DGP1 navigate' {
+                    try {
+                        Set-Location -LiteralPath $payload -ErrorAction Stop
+                        $env:DGO_PREDICTOR_CWD = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath
+                        [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, '')
+                    } catch {
+                        [console]::Beep()
+                    }
+                }
+                'DGP1 insert' {
+                    [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, $payload)
+                }
+            }
+        } finally {
+            Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function global:Invoke-DirgoSuggestion {
@@ -1236,7 +1388,8 @@ _dgo() {
     'init:print shell integration' 'completions:print shell completion script'
     'refresh:rebuild the directory index' 'query:resolve a directory query'
     'explain:show ranked candidates as JSON' 'bench:measure local work'
-    'root:go to the current project root' 'repo:find a repository'
+    'root:go to the current project root' 'roots:manage search roots'
+    'palette:open the Workspace Palette' 'repo:find a repository'
     'recent:find recently visited directories' 'back:go back in session history'
     'forward:go forward in session history' 'import:import navigation history'
     'bookmarks:list bookmarks' 'bookmark:manage bookmarks' 'doctor:inspect configuration'
@@ -1257,6 +1410,7 @@ _dgo() {
     query)
       case $words[2] in
         bookmark) _arguments '1:operation:(add remove rename)' '2:bookmark:_dgo_bookmark_names' ;;
+        roots) _arguments '1:operation:(list add remove)' ;;
         config) _arguments '1:operation:(path show)' ;;
         update-notifications) _arguments '1:mode:(on off)' ;;
         import) _arguments '1:source:(zoxide)' ;;
@@ -1290,7 +1444,7 @@ _dgo_complete() {
   fi
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands='setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
+  commands='setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
   options='--update --open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
   case "$prev" in
     init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish powershell' -- "$cur") ) ;;
@@ -1299,6 +1453,7 @@ _dgo_complete() {
     config) COMPREPLY=( $(compgen -W 'path show' -- "$cur") ) ;;
     update-notifications) COMPREPLY=( $(compgen -W 'on off' -- "$cur") ) ;;
     bookmark) COMPREPLY=( $(compgen -W 'add remove rename' -- "$cur") ) ;;
+    roots) COMPREPLY=( $(compgen -W 'list add remove' -- "$cur") ) ;;
     remove|rename|--forget) COMPREPLY=( $(compgen -W "$(_dgo_bookmarks)" -- "$cur") ) ;;
     *) COMPREPLY=( $(compgen -W "$commands $options" -- "$cur") ) ;;
   esac
@@ -1330,7 +1485,7 @@ function __dgo_live_candidates
         --format lines --terminal-rows "$LINES" --terminal-columns "$COLUMNS" 2>/dev/null
 end
 complete -c dgo -a '(__dgo_live_candidates)'
-complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
+complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
 complete -c dgo -l update -d 'Install the latest Dirgo release'
 complete -c dgo -l open -d 'Open with the OS'
 complete -c dgo -l finder -d 'Open in file browser'
@@ -1346,14 +1501,24 @@ complete -c dgo -n '__fish_seen_subcommand_from import' -a zoxide
 complete -c dgo -n '__fish_seen_subcommand_from config' -a 'path show'
 complete -c dgo -n '__fish_seen_subcommand_from update-notifications' -a 'on off'
 complete -c dgo -n '__fish_seen_subcommand_from bookmark' -a 'add remove rename'
+complete -c dgo -n '__fish_seen_subcommand_from roots' -a 'list add remove'
 complete -c dgo -n '__fish_seen_subcommand_from suggestions' -a 'enable disable status doctor history'
 complete -c dgo -n '__fish_seen_subcommand_from remove rename' -a '(__dgo_bookmarks)'
 "#;
 
 const POWERSHELL_COMPLETIONS: &str = r#"Register-ArgumentCompleter -Native -CommandName dgo -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
+    $tokens = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
+    if ($tokens.Count -ge 2 -and $tokens[1] -eq 'roots') {
+        foreach ($operation in @('list', 'add', 'remove')) {
+            if ($operation.StartsWith($wordToComplete, [System.StringComparison]::OrdinalIgnoreCase)) {
+                [System.Management.Automation.CompletionResult]::new($operation, $operation, 'ParameterValue', $operation)
+            }
+        }
+        return
+    }
     $commands = @('setup', 'init', 'completions', 'refresh', 'query', 'explain', 'bench',
-        'root', 'repo', 'recent', 'back', 'forward', 'import', 'bookmarks', 'bookmark',
+        'root', 'roots', 'palette', 'repo', 'recent', 'back', 'forward', 'import', 'bookmarks', 'bookmark',
         'doctor', 'stats', 'config', 'support', 'suggestions', 'update-notifications')
     foreach ($command in $commands) {
         if ($command.StartsWith($wordToComplete, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -1426,6 +1591,68 @@ mod tests {
         let fish = integration(Shell::Fish);
         assert!(fish.contains("if command dgo __suggest-pick --shell fish"));
         assert!(fish.contains("; and test -f \"$result_file\""));
+    }
+
+    #[test]
+    fn suggestion_picker_navigates_only_versioned_directory_results() {
+        let zsh = integration(Shell::Zsh);
+        assert!(zsh.contains("DGS1 navigate"));
+        assert!(zsh.contains("builtin cd -- \"$payload\""));
+        assert!(zsh.contains("BUFFER=''"));
+        assert!(zsh.contains("DGS1 insert"));
+        assert!(zsh.contains("BUFFER=\"${payload}${after}\""));
+
+        let bash = integration(Shell::Bash);
+        assert!(bash.contains("DGS1 navigate"));
+        assert!(bash.contains("builtin cd -- \"$payload\""));
+        assert!(bash.contains("READLINE_LINE=''"));
+        assert!(bash.contains("READLINE_LINE=\"${payload}${after}\""));
+
+        let fish = integration(Shell::Fish);
+        assert!(fish.contains("DGS1 navigate"));
+        assert!(fish.contains("builtin cd -- \"$payload\""));
+        assert!(fish.contains("commandline -r -- ''"));
+        assert!(fish.contains("DGS1 insert"));
+        assert!(!fish.contains("Invoke-Expression"));
+    }
+
+    #[test]
+    fn workspace_palette_widgets_apply_versioned_frames_without_execution() {
+        let zsh = integration(Shell::Zsh);
+        assert!(zsh.contains("bindkey '^[p' _dgo_workspace_palette"));
+        assert!(zsh.contains("DGP1 navigate"));
+        assert!(zsh.contains("builtin cd -- \"$payload\""));
+        assert!(zsh.contains("BUFFER=''"));
+        assert!(zsh.contains("BUFFER=\"$payload\""));
+
+        let bash = integration(Shell::Bash);
+        assert!(bash.contains("bind -x '\"\\ep\":_dgo_workspace_palette'"));
+        assert!(bash.contains("READLINE_LINE=\"$payload\""));
+        assert!(bash.contains("builtin cd -- \"$payload\""));
+        assert!(bash.contains("READLINE_LINE=''"));
+
+        let fish = integration(Shell::Fish);
+        assert!(fish.contains("bind \\ep __dgo_workspace_palette"));
+        assert!(fish.contains("if builtin cd -- \"$payload\""));
+        assert!(fish.contains("commandline -r -- \"$payload\""));
+        assert!(fish.contains("builtin cd -- \"$payload\""));
+        assert!(fish.contains("commandline -r -- ''"));
+
+        let powershell = integration(Shell::PowerShell);
+        assert!(powershell.contains("Set-PSReadLineKeyHandler -Chord Alt+p"));
+        assert!(powershell.contains("DGP1 navigate"));
+        assert!(powershell.contains("Set-Location -LiteralPath $payload -ErrorAction Stop"));
+        assert!(powershell.contains("Set-Location -LiteralPath $payload"));
+        assert!(powershell.contains("PSConsoleReadLine]::Replace(0, $line.Length, '')"));
+        assert!(powershell.contains("PSConsoleReadLine]::Replace"));
+        assert!(!powershell.contains("Invoke-Expression"));
+    }
+
+    #[test]
+    fn palette_is_present_in_every_public_completion_catalog() {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::PowerShell] {
+            assert!(completions(shell).contains("palette"), "{}", shell.name());
+        }
     }
 
     #[test]

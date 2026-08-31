@@ -1,0 +1,213 @@
+#!/usr/bin/expect -f
+
+set timeout 20
+encoding system utf-8
+if {[info exists env(DGO_PTY_DEBUG)]} {
+    log_user 1
+} else {
+    log_user 0
+}
+
+if {![info exists env(DGO_BIN)]} {
+    puts stderr "DGO_BIN is required"
+    exit 2
+}
+
+set sandbox "/tmp/dirgo-palette-[pid]-[clock seconds]"
+set sandbox [file normalize $sandbox]
+set project "$sandbox/filesystem/Workspace Palette демо"
+set jump "$sandbox/filesystem/- Jump quo'te 子"
+file mkdir "$project/src"
+file mkdir $jump
+file mkdir "$sandbox/config/dirgo"
+set package [open "$project/package.json" w]
+puts $package {{"name":"palette-demo","scripts":{"dev":"printf should-not-run"}}}
+close $package
+set source [open "$project/src/main.rs" w]
+puts $source {fn main() { println!("palette"); }}
+close $source
+set config [open "$sandbox/config/dirgo/config.toml" w]
+puts $config "schema_version = 1"
+puts $config "roots = \[\"$sandbox/filesystem\"\]"
+close $config
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(DGO_DISABLE_UPDATE_CHECK) 1
+set env(DGO_TEST_PROJECT) $project
+set env(DGO_TEST_JUMP) $jump
+set env(DGO_TEST_PROBE) "$sandbox/probe.txt"
+set env(DGO_TEST_SENTINEL) "$sandbox/should-not-run"
+set env(TERM) xterm-256color
+set env(LANG) C.UTF-8
+set env(LC_ALL) C.UTF-8
+set env(PATH) "[file dirname $env(DGO_BIN)]:$env(PATH)"
+
+spawn -noecho "$env(DGO_BIN)" refresh
+expect eof
+if {[lindex [wait] 3] != 0} {
+    puts stderr "palette fixture refresh failed"
+    file delete -force $sandbox
+    exit 1
+}
+spawn -noecho "$env(DGO_BIN)" bookmark add jump --path $jump
+expect eof
+if {[lindex [wait] 3] != 0} {
+    puts stderr "palette fixture bookmark failed"
+    file delete -force $sandbox
+    exit 1
+}
+
+set update_cache "$sandbox/cache/dirgo/update.json"
+set update [open $update_cache w]
+puts $update {{"checked_at":18446744073709551615,"latest_version":"9.9.9"}}
+close $update
+unset env(DGO_DISABLE_UPDATE_CHECK)
+spawn -noecho "$env(DGO_BIN)" --version
+expect {
+    -exact "dgo 0.7.0" {}
+    timeout { puts stderr "interactive version omitted the current version"; file delete -force $sandbox; exit 1 }
+}
+expect {
+    -exact "Update available" {}
+    timeout { puts stderr "interactive version omitted cached update status"; file delete -force $sandbox; exit 1 }
+}
+expect eof
+if {[lindex [wait] 3] != 0} {
+    puts stderr "interactive version status failed"
+    file delete -force $sandbox
+    exit 1
+}
+set env(DGO_DISABLE_UPDATE_CHECK) 1
+
+proc probe_values {} {
+    global env
+    if {![file exists $env(DGO_TEST_PROBE)]} {
+        return {}
+    }
+    set channel [open $env(DGO_TEST_PROBE) r]
+    set contents [read $channel]
+    close $channel
+    return [split [string trimright $contents "\n"] "\n"]
+}
+
+proc verify_probe {name expected_pwd expected_buffer} {
+    set values [probe_values]
+    set actual_buffer ""
+    if {[llength $values] >= 2} { set actual_buffer [lindex $values 1] }
+    if {[llength $values] < 1 || [lindex $values 0] ne $expected_pwd || $actual_buffer ne $expected_buffer} {
+        puts stderr "$name palette probe mismatch: expected pwd=$expected_pwd buffer=<$expected_buffer>, got $values"
+        return 0
+    }
+    return 1
+}
+
+proc exercise {name executable setup} {
+    global env timeout
+    file delete -force $env(DGO_TEST_PROBE)
+    spawn -noecho {*}$executable
+    send -- "$setup\r"
+    expect {
+        -exact "PAL:$name:ready" {}
+        timeout { puts stderr "$name palette setup timed out"; return 1 }
+        eof { puts stderr "$name palette shell exited during setup"; return 1 }
+    }
+    expect {
+        -exact "PAL-$name> " {}
+        timeout { puts stderr "$name palette prompt did not become ready"; return 1 }
+        eof { puts stderr "$name palette shell exited before its prompt"; return 1 }
+    }
+
+    # Cancellation must preserve the entered buffer, including a literal >.
+    send -- "literal > buffer"
+    send -- "\033p"
+    expect {
+        -exact "\033\[?1049h" {}
+        timeout { puts stderr "$name palette did not open"; return 1 }
+    }
+    after 150
+    send -- "\033"
+    expect -exact "\033\[?1049l"
+    after 100
+    send -- "\024"
+    after 100
+    if {![verify_probe $name $env(DGO_TEST_PROJECT) "literal > buffer"]} { return 1 }
+    send -- "\025"
+
+    # Selecting a project task replaces the editor buffer and never presses Enter.
+    file delete -force $env(DGO_TEST_PROBE)
+    send -- "dev"
+    send -- "\033p"
+    expect {
+        -exact "\033\[?1049h" {}
+        timeout { puts stderr "$name task palette did not open"; return 1 }
+    }
+    after 150
+    send -- "\r"
+    expect -exact "\033\[?1049l"
+    after 150
+    send -- "\024"
+    after 100
+    if {![verify_probe $name $env(DGO_TEST_PROJECT) "npm run dev"]} { return 1 }
+    if {[file exists $env(DGO_TEST_SENTINEL)]} {
+        puts stderr "$name palette executed a task"
+        return 1
+    }
+    send -- "\025"
+
+    # A place selection changes cwd literally and clears the old query buffer.
+    file delete -force $env(DGO_TEST_PROBE)
+    send -- "@jump"
+    send -- "\033p"
+    expect {
+        -exact "\033\[?1049h" {}
+        timeout { puts stderr "$name places palette did not open"; return 1 }
+    }
+    after 150
+    send -- "\r"
+    expect -exact "\033\[?1049l"
+    after 150
+    send -- "\024"
+    after 100
+    if {![verify_probe $name $env(DGO_TEST_JUMP) ""]} { return 1 }
+
+    send -- "exit\r"
+    expect eof
+    set result [wait]
+    if {[lindex $result 3] != 0} {
+        puts stderr "$name palette shell exited with [lindex $result 3]"
+        return 1
+    }
+    puts "PALETTE-PTY:$name:ok"
+    return 0
+}
+
+set failed 0
+set zsh_setup {stty rows 24 columns 110; eval "$($DGO_BIN init zsh)"; function _dgo_test_probe() { print -r -- "$PWD" >| "$DGO_TEST_PROBE"; print -r -- "$BUFFER" >> "$DGO_TEST_PROBE"; }; zle -N _dgo_test_probe; bindkey '^T' _dgo_test_probe; builtin cd "$DGO_TEST_PROJECT"; PS1='PAL-zsh> '; print -r -- PAL:zsh:ready}
+if {[exercise zsh [list /bin/zsh -f] $zsh_setup] != 0} { set failed 1 }
+
+if {[info exists env(DGO_BASH_MAJOR)]} {
+    set bash_major $env(DGO_BASH_MAJOR)
+} elseif {$tcl_platform(os) eq "Darwin"} {
+    set bash_major 3
+} else {
+    set bash_major 4
+}
+if {$bash_major < 4} {
+    puts "PALETTE-PTY:bash:skipped (Bash 4+ is required)"
+} else {
+    set bash_setup {stty rows 24 columns 110; eval "$("$DGO_BIN" init bash)"; _dgo_test_probe() { printf '%s\n%s\n' "$PWD" "$READLINE_LINE" > "$DGO_TEST_PROBE"; }; bind -x '"\C-t":_dgo_test_probe'; builtin cd "$DGO_TEST_PROJECT"; PS1='PAL-bash> '; printf 'PAL:bash:ready\n'}
+    if {[exercise bash [list /bin/bash --noprofile --norc -i] $bash_setup] != 0} { set failed 1 }
+}
+
+set fish [auto_execok fish]
+if {$fish eq ""} {
+    puts "PALETTE-PTY:fish:skipped"
+} else {
+    set fish_setup {stty rows 24 columns 110; "$DGO_BIN" init fish | source; function __dgo_test_probe; printf '%s\n%s\n' "$PWD" (commandline -b) > "$DGO_TEST_PROBE"; end; bind \ct __dgo_test_probe; builtin cd "$DGO_TEST_PROJECT"; function fish_prompt; printf 'PAL-fish> '; end; printf 'PAL:fish:ready\n'}
+    if {[exercise fish [list $fish --no-config --interactive] $fish_setup] != 0} { set failed 1 }
+}
+
+file delete -force $sandbox
+exit $failed

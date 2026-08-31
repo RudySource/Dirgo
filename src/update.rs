@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    io::{self, IsTerminal},
     path::Path,
     process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
@@ -17,6 +18,15 @@ const UNIX_INSTALLER: &str =
 const WINDOWS_INSTALLER: &str =
     "https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1";
 const CHECK_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateStatus {
+    UpToDate,
+    Available { latest: String },
+    Unknown,
+    Disabled,
+    Stale { last_checked: u64 },
+}
 
 #[derive(Debug, Deserialize)]
 struct ReleaseResponse {
@@ -39,6 +49,7 @@ enum InstallSource {
 
 pub fn set_notifications(paths: &AppPaths, enabled: bool) -> Result<i32> {
     paths.ensure_dirs()?;
+    reject_symlink(&paths.update_notice_disabled_file)?;
     if enabled {
         match fs::remove_file(&paths.update_notice_disabled_file) {
             Ok(()) => {}
@@ -49,11 +60,74 @@ pub fn set_notifications(paths: &AppPaths, enabled: bool) -> Result<i32> {
         }
         println!("Dirgo update notifications enabled.");
     } else {
-        fs::write(&paths.update_notice_disabled_file, b"disabled\n")
-            .map_err(|error| DirgoError::io(&paths.update_notice_disabled_file, error))?;
+        crate::config_edit::atomic_write(&paths.update_notice_disabled_file, b"disabled\n")?;
         println!("Dirgo update notifications disabled.");
     }
     Ok(0)
+}
+
+pub fn print_version() -> Result<i32> {
+    println!("dgo {}", env!("CARGO_PKG_VERSION"));
+    if !io::stdout().is_terminal() {
+        return Ok(0);
+    }
+    let paths = AppPaths::discover()?;
+    let color = env::var_os("NO_COLOR").is_none();
+    let unicode = env::var_os("DGO_NO_UNICODE").is_none();
+    print!(
+        "{}",
+        render_version_status(&local_status(&paths), color, unicode)
+    );
+    Ok(0)
+}
+
+pub fn local_status(paths: &AppPaths) -> UpdateStatus {
+    if env::var_os("DGO_DISABLE_UPDATE_CHECK").is_some()
+        || regular_file(&paths.update_notice_disabled_file)
+    {
+        return UpdateStatus::Disabled;
+    }
+    let Some(cache) = read_cache(paths) else {
+        return UpdateStatus::Unknown;
+    };
+    if now().saturating_sub(cache.checked_at) >= CHECK_INTERVAL_SECONDS {
+        return UpdateStatus::Stale {
+            last_checked: cache.checked_at,
+        };
+    }
+    if is_newer(&cache.latest_version, env!("CARGO_PKG_VERSION")) {
+        UpdateStatus::Available {
+            latest: cache.latest_version,
+        }
+    } else {
+        UpdateStatus::UpToDate
+    }
+}
+
+pub fn render_version_status(status: &UpdateStatus, color: bool, unicode: bool) -> String {
+    let marker = if unicode { "●" } else { "*" };
+    let muted = if color { "\u{1b}[38;5;245m" } else { "" };
+    let green = if color { "\u{1b}[38;5;42m" } else { "" };
+    let reset = if color { "\u{1b}[0m" } else { "" };
+    match status {
+        UpdateStatus::Available { latest } => format!(
+            "\n{green}{marker}  Update available{reset}\n{muted}   {}  {}  {latest}\n   Run `dgo --update`{reset}\n",
+            env!("CARGO_PKG_VERSION"),
+            if unicode { "→" } else { "->" }
+        ),
+        UpdateStatus::UpToDate => format!(
+            "\n{green}{marker}  Dirgo is up to date{reset}\n{muted}   No action needed.{reset}\n"
+        ),
+        UpdateStatus::Disabled => format!(
+            "\n{muted}{marker}  Update checks are off\n   Enable with `dgo update-notifications on`{reset}\n"
+        ),
+        UpdateStatus::Stale { .. } => format!(
+            "\n{muted}{marker}  Update status is stale\n   Dirgo will refresh it in the background.{reset}\n"
+        ),
+        UpdateStatus::Unknown => format!(
+            "\n{muted}{marker}  Update status unavailable\n   Dirgo will check quietly in the background.{reset}\n"
+        ),
+    }
 }
 
 pub fn notify_and_refresh_in_background(paths: &AppPaths) {
@@ -66,10 +140,11 @@ pub fn notify_and_refresh_in_background(paths: &AppPaths) {
     if let Some(cache) = read_cache(paths)
         && is_newer(&cache.latest_version, env!("CARGO_PKG_VERSION"))
     {
-        eprintln!(
-            "Dirgo {} is available (current {}). Run `dgo --update`. Disable this notice with `dgo update-notifications off`.",
-            cache.latest_version,
-            env!("CARGO_PKG_VERSION")
+        let color = io::stderr().is_terminal() && env::var_os("NO_COLOR").is_none();
+        let unicode = env::var_os("DGO_NO_UNICODE").is_none();
+        eprint!(
+            "{}",
+            render_update_notice(&cache.latest_version, color, unicode)
         );
     }
 
@@ -80,7 +155,9 @@ pub fn notify_and_refresh_in_background(paths: &AppPaths) {
         tracing::debug!(%error, "could not prepare update-check cache");
         return;
     }
-    if let Err(error) = fs::write(&paths.update_check_file, now().to_string()) {
+    if let Err(error) = reject_symlink(&paths.update_check_file).and_then(|()| {
+        crate::config_edit::atomic_write(&paths.update_check_file, now().to_string().as_bytes())
+    }) {
         tracing::debug!(%error, "could not record update-check attempt");
         return;
     }
@@ -91,19 +168,21 @@ pub fn notify_and_refresh_in_background(paths: &AppPaths) {
 
 pub fn refresh_cache(paths: &AppPaths) -> Result<i32> {
     let latest_version = fetch_latest_version()?;
-    paths.ensure_dirs()?;
-    let cache = UpdateCache {
-        checked_at: now(),
-        latest_version,
-    };
-    let bytes = serde_json::to_vec(&cache)?;
-    let temporary = paths
-        .update_cache_file
-        .with_extension(format!("json.{}.tmp", std::process::id()));
-    fs::write(&temporary, bytes).map_err(|error| DirgoError::io(&temporary, error))?;
-    fs::rename(&temporary, &paths.update_cache_file)
-        .map_err(|error| DirgoError::io(&paths.update_cache_file, error))?;
+    publish_cache(paths, latest_version, now())?;
     Ok(0)
+}
+
+fn publish_cache(paths: &AppPaths, latest_version: String, checked_at: u64) -> Result<()> {
+    parse_version(&latest_version)
+        .filter(|_| !latest_version.chars().any(char::is_control))
+        .ok_or_else(|| DirgoError::User("update cache version is invalid".into()))?;
+    paths.ensure_dirs()?;
+    reject_symlink(&paths.update_cache_file)?;
+    let bytes = serde_json::to_vec(&UpdateCache {
+        checked_at,
+        latest_version,
+    })?;
+    crate::config_edit::atomic_write(&paths.update_cache_file, &bytes)
 }
 
 pub fn run_update() -> Result<i32> {
@@ -206,15 +285,55 @@ fn release_request() -> std::io::Result<std::process::Output> {
 }
 
 fn read_cache(paths: &AppPaths) -> Option<UpdateCache> {
+    let metadata = fs::symlink_metadata(&paths.update_cache_file).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > 4 * 1024 {
+        return None;
+    }
     let raw = fs::read(&paths.update_cache_file).ok()?;
-    serde_json::from_slice(&raw).ok()
+    let cache: UpdateCache = serde_json::from_slice(&raw).ok()?;
+    parse_version(&cache.latest_version)?;
+    (!cache.latest_version.chars().any(char::is_control)).then_some(cache)
+}
+
+fn regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
 fn check_is_fresh(path: &Path) -> bool {
+    if !regular_file(path) {
+        return false;
+    }
     fs::read_to_string(path)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
         .is_some_and(|checked_at| now().saturating_sub(checked_at) < CHECK_INTERVAL_SECONDS)
+}
+
+fn reject_symlink(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(DirgoError::User(format!(
+            "refusing symlink update-state path: {}",
+            path.display()
+        ))),
+        Ok(metadata) if !metadata.file_type().is_file() => Err(DirgoError::User(format!(
+            "update-state path is not a regular file: {}",
+            path.display()
+        ))),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(DirgoError::io(path, error)),
+    }
+}
+
+fn render_update_notice(latest: &str, color: bool, unicode: bool) -> String {
+    let marker = if unicode { "●" } else { "*" };
+    let green = if color { "\u{1b}[38;5;42m" } else { "" };
+    let muted = if color { "\u{1b}[38;5;245m" } else { "" };
+    let reset = if color { "\u{1b}[0m" } else { "" };
+    format!(
+        "{green}{marker}  Dirgo {latest} is ready{reset}\n{muted}   You have {}  ·  `dgo --update`\n   Hide this with `dgo update-notifications off`{reset}\n",
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 fn spawn_background_check() -> std::io::Result<()> {
@@ -360,5 +479,39 @@ mod tests {
             detect_install_source(Path::new("/home/me/.local/bin/dgo")),
             InstallSource::Direct
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_publication_is_private_atomic_and_refuses_symlinks() {
+        use std::os::unix::{fs::PermissionsExt, fs::symlink};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = AppPaths {
+            config_file: temp.path().join("config.toml"),
+            cache_dir: temp.path().join("cache"),
+            state_dir: temp.path().join("state"),
+            index_file: temp.path().join("cache/index.redb"),
+            state_file: temp.path().join("state/state.redb"),
+            suggestions_state_file: temp.path().join("state/suggestions.redb"),
+            update_cache_file: temp.path().join("cache/update.json"),
+            update_check_file: temp.path().join("cache/update-check"),
+            update_notice_disabled_file: temp.path().join("state/disabled"),
+        };
+        publish_cache(&paths, "9.9.9".into(), 42).expect("publish cache");
+        let mode = fs::metadata(&paths.update_cache_file)
+            .expect("cache metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(read_cache(&paths).expect("cache").latest_version, "9.9.9");
+
+        fs::remove_file(&paths.update_cache_file).expect("remove cache");
+        let victim = temp.path().join("victim");
+        fs::write(&victim, "keep me").expect("victim");
+        symlink(&victim, &paths.update_cache_file).expect("cache symlink");
+        assert!(publish_cache(&paths, "10.0.0".into(), 43).is_err());
+        assert_eq!(fs::read_to_string(victim).expect("victim bytes"), "keep me");
     }
 }

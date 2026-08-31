@@ -4,7 +4,7 @@ use std::{
     env,
     io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -22,6 +22,10 @@ use crate::{
     history_import,
     index::{self, IndexStore},
     model::{Candidate, PathHistory, QueryResponse, unix_now},
+    palette::{
+        PaletteAction, PaletteCoordinator, PaletteResultFrame, PaletteSession, PaletteSource,
+        PaletteViewOptions, ProviderBudget,
+    },
     paths::{self, AppPaths},
     search::{self, SearchContext},
     shell,
@@ -31,9 +35,9 @@ use crate::{
         CommandOutcome, DecodedHistoryRecord, MAX_REQUEST_BYTES, SuggestionData, SuggestionEngine,
         SuggestionResponse, claim_project_command_refresh, decode_history_record_frame,
         decode_request_line, encode_response_line, is_sensitive_command,
-        load_cached_project_command_snapshot, pick_suggestion, read_bounded_frame,
-        read_command_history, read_history_snapshot, refresh_project_command_cache,
-        write_suggestions_config,
+        load_cached_project_command_snapshot, load_project_command_snapshot, pick_suggestion,
+        read_bounded_frame, read_command_history, read_history_snapshot,
+        refresh_project_command_cache, write_suggestions_config,
     },
     terminal,
 };
@@ -189,6 +193,9 @@ pub fn run() -> Result<i32> {
     if let Some(Command::Setup(args)) = &cli.command {
         return crate::setup::run(&paths, args, cli.no_color, cli.no_unicode);
     }
+    if let Some(Command::Roots { command }) = &cli.command {
+        return crate::roots::run(&paths, command);
+    }
     if matches!(
         &cli.command,
         Some(Command::Config {
@@ -320,6 +327,25 @@ pub fn run() -> Result<i32> {
     {
         return hidden_suggest_pick(&paths, &config, *shell, cwd, request_path, output_path);
     }
+    if let Some(Command::PaletteJson { cwd }) = &cli.command {
+        return hidden_palette_json(&paths, &config, cwd);
+    }
+    if let Some(Command::PalettePick {
+        shell,
+        cwd,
+        output_path,
+        query,
+    }) = &cli.command
+    {
+        return hidden_palette_pick(
+            &paths,
+            &config,
+            *shell,
+            cwd,
+            output_path,
+            query.as_deref().unwrap_or_default(),
+        );
+    }
 
     if cli.refresh || matches!(cli.command, Some(Command::Refresh)) {
         let summary = index::rebuild(&paths, &config)?;
@@ -344,6 +370,10 @@ pub fn run() -> Result<i32> {
         Some(Command::Explain { query }) => explain_command(&paths, &config, query),
         Some(Command::Bench { query, samples }) => bench_command(&paths, &config, &query, samples),
         Some(Command::Root) => print_project_root(current_dir()?),
+        Some(Command::Roots { .. }) => unreachable!("handled before configuration loading"),
+        Some(Command::Palette { query }) => {
+            palette_command(&paths, &config, &current_dir()?, query.join(" "))
+        }
         Some(Command::Repo { query }) => repository_command(
             &paths,
             &config,
@@ -364,7 +394,7 @@ pub fn run() -> Result<i32> {
         Some(Command::Forward) => navigation_command(&paths, Direction::Forward),
         Some(Command::Import { source }) => import_history(&paths, source),
         Some(Command::Bookmark { command }) => bookmark_command(&paths, command),
-        Some(Command::Stats) => stats(&paths),
+        Some(Command::Stats) => stats(&paths, &config),
         Some(Command::Config { command }) => config_command(&paths, &config, command),
         Some(Command::Support) => unreachable!("handled before storage access"),
         Some(
@@ -378,6 +408,8 @@ pub fn run() -> Result<i32> {
             | Command::SuggestDebounce
             | Command::SuggestNativeTimeout
             | Command::SuggestHistoryEnabled
+            | Command::PaletteJson { .. }
+            | Command::PalettePick { .. }
             | Command::SuggestProjectRefresh { .. }
             | Command::SuggestShell { .. }
             | Command::SuggestComplete { .. }
@@ -922,16 +954,220 @@ fn hidden_suggest_pick(
     let project = cached_project_commands(paths, &request.cwd);
     let suggestions = build_suggestion_engine(paths, config, needs_executables(&request))?
         .suggest_with_project(&request, project.as_ref());
-    let replacement = pick_suggestion(
+    let selection = pick_suggestion(
         &suggestions,
         crate::suggestions::PickerOptions {
             color: config.ui.accent != "none" && env::var_os("NO_COLOR").is_none(),
             unicode: config.ui.icons != "never",
         },
-    )?
-    .unwrap_or_default();
-    write_private_picker_result(output_path, replacement.as_bytes())?;
+    )?;
+    let contents = selection
+        .map(|selection| {
+            crate::suggestions::SuggestionPickerResultFrame::from_selection(
+                &suggestions[selection.index()],
+                selection.accept(),
+                shell,
+            )
+            .map(|frame| frame.encode())
+        })
+        .transpose()?
+        .unwrap_or_default();
+    write_private_picker_result(output_path, contents.as_bytes())?;
     Ok(0)
+}
+
+fn palette_budgets() -> HashMap<PaletteSource, ProviderBudget> {
+    HashMap::from([
+        (
+            PaletteSource::Files,
+            ProviderBudget::new(256, Duration::from_millis(35)),
+        ),
+        (
+            PaletteSource::Tasks,
+            ProviderBudget::new(128, Duration::from_millis(20)),
+        ),
+        (
+            PaletteSource::Git,
+            ProviderBudget::new(128, Duration::from_millis(120)),
+        ),
+        (
+            PaletteSource::Compose,
+            ProviderBudget::new(64, Duration::from_millis(20)),
+        ),
+        (
+            PaletteSource::Places,
+            ProviderBudget::new(128, Duration::from_millis(20)),
+        ),
+    ])
+}
+
+fn build_palette_snapshot(
+    paths: &AppPaths,
+    config: &Config,
+    cwd: &Path,
+) -> Result<crate::palette::PaletteSnapshot> {
+    let cwd = cwd
+        .canonicalize()
+        .map_err(|error| DirgoError::io(cwd, error))?;
+    let (records, bookmarks, _) = load_context(paths, config)?;
+    let project_root = index::find_project_root(&cwd).map(|(root, _)| root);
+    let file_root = project_root.as_deref().unwrap_or(&cwd);
+    let project = project_root
+        .as_deref()
+        .map(load_project_command_snapshot)
+        .transpose()?;
+    let empty_project = crate::suggestions::ProjectCommandSnapshot::new(cwd.clone(), Vec::new());
+    let project = project.as_ref().unwrap_or(&empty_project);
+    let budgets = palette_budgets();
+    let budget = |source| {
+        budgets
+            .get(&source)
+            .copied()
+            .expect("every palette provider has a budget")
+    };
+    let batches = std::thread::scope(|scope| {
+        let files = scope
+            .spawn(|| crate::palette::providers::files(file_root, budget(PaletteSource::Files)));
+        let tasks =
+            scope.spawn(|| crate::palette::providers::tasks(project, budget(PaletteSource::Tasks)));
+        let git = scope.spawn(|| crate::palette::providers::git(&cwd, budget(PaletteSource::Git)));
+        let compose = scope
+            .spawn(|| crate::palette::providers::compose(project, budget(PaletteSource::Compose)));
+        let places = scope.spawn(|| {
+            crate::palette::providers::places(&records, &bookmarks, budget(PaletteSource::Places))
+        });
+        vec![
+            files.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Files,
+                    "files provider stopped unexpectedly",
+                )
+            }),
+            tasks.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Tasks,
+                    "tasks provider stopped unexpectedly",
+                )
+            }),
+            git.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Git,
+                    "git provider stopped unexpectedly",
+                )
+            }),
+            compose.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Compose,
+                    "compose provider stopped unexpectedly",
+                )
+            }),
+            places.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Places,
+                    "places provider stopped unexpectedly",
+                )
+            }),
+        ]
+    });
+    Ok(PaletteCoordinator::new(budgets).merge(batches))
+}
+
+fn hidden_palette_json(paths: &AppPaths, config: &Config, cwd: &Path) -> Result<i32> {
+    let snapshot = build_palette_snapshot(paths, config, cwd)?;
+    let states = PaletteSource::FILTERS
+        .into_iter()
+        .filter(|source| *source != PaletteSource::All)
+        .map(|source| (source.as_str(), snapshot.state(source)))
+        .collect::<HashMap<_, _>>();
+    serde_json::to_writer(
+        io::stdout().lock(),
+        &serde_json::json!({
+            "version": 1,
+            "items": snapshot.items(PaletteSource::All),
+            "states": states,
+        }),
+    )
+    .map_err(|error| DirgoError::User(format!("could not encode palette snapshot: {error}")))?;
+    println!();
+    Ok(0)
+}
+
+fn palette_command(paths: &AppPaths, config: &Config, cwd: &Path, query: String) -> Result<i32> {
+    let snapshot = build_palette_snapshot(paths, config, cwd)?;
+    let session = PaletteSession::new(snapshot, query, Instant::now());
+    let action = crate::palette::pick(
+        session,
+        PaletteViewOptions {
+            color: config.ui.accent != "none" && env::var_os("NO_COLOR").is_none(),
+            unicode: config.ui.icons != "never",
+        },
+    )?;
+    if let Some(action) = action {
+        handle_palette_action(config, action, None)?;
+    }
+    Ok(0)
+}
+
+fn hidden_palette_pick(
+    paths: &AppPaths,
+    config: &Config,
+    shell: crate::shell::Shell,
+    cwd: &Path,
+    output_path: &Path,
+    query: &str,
+) -> Result<i32> {
+    shell::validate_output_path(output_path)?;
+    if query.contains(['\r', '\n']) || query.chars().any(char::is_control) {
+        return Err(DirgoError::User(
+            "palette query cannot contain terminal control characters".into(),
+        ));
+    }
+    let snapshot = build_palette_snapshot(paths, config, cwd)?;
+    let session = PaletteSession::new(snapshot, query.to_owned(), Instant::now());
+    let action = crate::palette::pick(
+        session,
+        PaletteViewOptions {
+            color: config.ui.accent != "none" && env::var_os("NO_COLOR").is_none(),
+            unicode: config.ui.icons != "never",
+        },
+    )?;
+    let contents = match action {
+        Some(action) => handle_palette_action(config, action, Some(shell))?,
+        None => String::new(),
+    };
+    write_private_picker_result(output_path, contents.as_bytes())?;
+    Ok(0)
+}
+
+fn handle_palette_action(
+    config: &Config,
+    action: PaletteAction,
+    shell: Option<crate::shell::Shell>,
+) -> Result<String> {
+    if let Some(shell) = shell
+        && let Some(frame) = PaletteResultFrame::from_action(&action, shell)?
+    {
+        return Ok(frame.encode());
+    }
+    match action {
+        PaletteAction::Navigate { path } => {
+            print_output_path(&path);
+        }
+        PaletteAction::Insert { text } => println!("{text}"),
+        PaletteAction::InsertCommand { program, args } => {
+            println!("{} {}", program, args.join(" "));
+        }
+        PaletteAction::Open { path } => {
+            crate::actions::execute(Action::Open, &path, &config.actions)?;
+        }
+        PaletteAction::CopyPath { path } => {
+            crate::actions::execute(Action::Copy, &path, &config.actions)?;
+        }
+        PaletteAction::OpenEditor { path } => {
+            crate::actions::execute(Action::Editor, &path, &config.actions)?;
+        }
+    }
+    Ok(String::new())
 }
 
 fn write_private_picker_result(path: &Path, contents: &[u8]) -> Result<()> {
@@ -1680,10 +1916,19 @@ fn emit_resolution(
         return complete_action(paths, config, origin, path, action, shell_mode);
     }
     if response.candidates.is_empty() && (!io::stdin().is_terminal() || picker.is_empty()) {
-        eprintln!(
-            "No directories match {:?}.\nTry a shorter query or run `dgo refresh`.",
-            response.query
-        );
+        if let Some(ignored) = crate::roots::ignored_query_segment(&response.query, &config.ignore)
+        {
+            eprintln!(
+                "No indexed directory matches {:?}.\n\n\"{}\" is excluded from the default index.\nUse an exact path, or add only the directory you need:\n\n  dgo roots add <PATH>",
+                response.query,
+                terminal::safe_text(ignored)
+            );
+        } else {
+            eprintln!(
+                "No directories match {:?}.\nTry a shorter query or run `dgo refresh`.",
+                response.query
+            );
+        }
         return Ok(EXIT_NO_MATCH);
     }
     let selection = match choose_candidate(
@@ -2198,6 +2443,40 @@ fn doctor(paths: &AppPaths, config: Result<Config>) -> Result<i32> {
         "✓ state          healthy ({} bookmarks)",
         state.bookmarks()?.len()
     );
+    let root_statuses = crate::roots::statuses(&config.roots);
+    let accessible_roots = root_statuses.iter().filter(|root| root.accessible).count();
+    let focused_roots = root_statuses.iter().filter(|root| root.focused).count();
+    let root_marker = if accessible_roots == root_statuses.len() {
+        "✓"
+    } else {
+        "!"
+    };
+    println!(
+        "{root_marker} roots          {} configured; {accessible_roots} accessible; {focused_roots} focused",
+        root_statuses.len()
+    );
+    if accessible_roots != root_statuses.len() {
+        println!("  Run `dgo roots list` for exact repair guidance.");
+    }
+    let (update_marker, update_detail) = match crate::update::local_status(paths) {
+        crate::update::UpdateStatus::UpToDate => ("✓", "current".to_owned()),
+        crate::update::UpdateStatus::Available { latest } => {
+            ("!", format!("{latest} available; run `dgo --update`"))
+        }
+        crate::update::UpdateStatus::Unknown => (
+            "!",
+            "unknown; the next normal command will refresh it".into(),
+        ),
+        crate::update::UpdateStatus::Disabled => (
+            "✓",
+            "checks disabled; enable with `dgo update-notifications on`".into(),
+        ),
+        crate::update::UpdateStatus::Stale { .. } => {
+            ("!", "stale; the next normal command will refresh it".into())
+        }
+    };
+    println!("{update_marker} update         {update_detail}");
+    println!("✓ palette        files/tasks/git/compose/places; bounded on open");
     let availability = crate::actions::availability(&config.actions);
     println!(
         "{} actions        open={} copy={} editor={}",
@@ -2238,7 +2517,7 @@ fn oversized_shell_startup() -> Option<(PathBuf, u64)> {
     (bytes > SLOW_SHELL_STARTUP_BYTES).then_some((startup, bytes))
 }
 
-fn stats(paths: &AppPaths) -> Result<i32> {
+fn stats(paths: &AppPaths, config: &Config) -> Result<i32> {
     paths.ensure_dirs()?;
     let state = StateStore::open(&paths.state_file)?;
     let histories = state.histories()?;
@@ -2266,8 +2545,12 @@ fn stats(paths: &AppPaths) -> Result<i32> {
         + std::fs::metadata(&paths.state_file)
             .map(|meta| meta.len())
             .unwrap_or(0);
+    let root_statuses = crate::roots::statuses(&config.roots);
+    let accessible_roots = root_statuses.iter().filter(|root| root.accessible).count();
+    let focused_roots = root_statuses.iter().filter(|root| root.focused).count();
     println!(
-        "Dirgo stats\n\nIndexed directories   {directories}\nProjects              {projects}\nBookmarks             {}\nDirgo navigations     {jumps}\nMost visited          {most}\nIndex age             {age}\nDatabase size         {:.1} MB",
+        "Dirgo stats\n\nIndexed directories   {directories}\nProjects              {projects}\nSearch roots          {}\nAccessible roots      {accessible_roots}\nFocused roots         {focused_roots}\nBookmarks             {}\nDirgo navigations     {jumps}\nMost visited          {most}\nIndex age             {age}\nDatabase size         {:.1} MB",
+        root_statuses.len(),
         bookmarks.len(),
         db_size as f64 / 1_048_576.0
     );

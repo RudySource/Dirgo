@@ -129,6 +129,10 @@ history. Selection inserts text only; Dirgo never submits or executes it.
 dgo suggestions enable
 ```
 
+Open a new shell, or reload `dgo init <shell>`, after enabling suggestions or
+installing a new Dirgo version so the in-memory panel code and version label
+match the installed binary.
+
 <p align="center">
   <img src="docs/assets/dirgo-suggestions.gif" width="860" alt="Dirgo shell suggestions completing a Git command with a description and a directory path">
 </p>
@@ -188,6 +192,42 @@ marker are not recorded at all. Exports omit cwd and project paths unless
 `--include-paths` is supplied, refuse symlink destinations, and require
 `--force` to replace a file. Before intentionally downgrading to Dirgo 0.5,
 export or clear the opt-in history because 0.5 does not understand schema v2.
+
+#### New in 0.7 · Workspace Palette
+
+Press `Alt+P` to open one searchable view of the current workspace. It combines
+files, declared project tasks, Git branches and worktrees, Docker Compose
+services, bookmarks, and indexed projects. `Tab` and `Shift+Tab` switch sources
+without rescanning or losing the current query.
+
+<p align="center">
+  <img src="docs/assets/dirgo-workspace-palette.gif" width="860" alt="Dirgo 0.7 Workspace Palette showing real file, task, Git, Compose, bookmark, focused-root, safe insertion, and cached update-status data across six verified scenes">
+</p>
+
+<p align="center"><sub>Verified local data · six scenes · commands are inserted, never executed.</sub></p>
+
+- Files are collected once with hard time, depth, and item budgets; Dirgo does
+  not search file contents.
+- Task, Compose, and branch choices replace the shell editor buffer. They do
+  not press Enter or run the command.
+- Worktrees, bookmarks, projects, and directories navigate literally, including
+  paths with spaces, quotes, Unicode, and a leading dash.
+- Preview starts only after the selection settles and stale preview work is
+  discarded.
+
+Dirgo also supports focused roots for useful folders inside normally ignored
+system trees. This makes a narrow path searchable without indexing all of
+`Library`, `AppData`, `.cache`, or another heavy parent:
+
+```bash
+dgo roots list
+dgo roots add "$HOME/Library/Application Support/Adobe/CEP"
+dgo library/adobe/cep/extensions
+```
+
+`dgo --version` keeps its stable one-line output in pipes. In an interactive
+terminal it also shows the cached update state without waiting for the network.
+Disable or restore update notices with `dgo update-notifications off|on`.
 
 ### Stay local and in control
 
@@ -310,6 +350,10 @@ dgo refresh                    rebuild the filesystem index
 dgo query <QUERY> [--json]     resolve without navigating
 dgo explain <QUERY>            show candidates and score components
 dgo root                       print the nearest project root
+dgo roots list                 inspect configured and focused roots
+dgo roots add PATH             add a narrow root and refresh the index
+dgo roots remove PATH          remove a root without deleting its directory
+dgo palette [QUERY]            open the Workspace Palette
 dgo repo [QUERY]               search indexed project roots
 dgo recent [QUERY]             search Dirgo navigation history
 dgo back | forward             navigate this shell session
@@ -333,6 +377,7 @@ dgo suggestions history export export versioned, path-redacted JSONL
 dgo --update                   install the latest stable release
 dgo update-notifications off   disable new-version notices
 dgo update-notifications on    enable new-version notices
+dgo --version                  show version and interactive cached update state
 ```
 
 Run `dgo --help` or `dgo <command> --help` for the complete interface.
@@ -399,6 +444,20 @@ below `XDG_STATE_HOME`. Persistent state is bounded and pruned.
 | `Ctrl-O` / `Ctrl-Y` / `Ctrl-E` | Open, copy, or launch the configured editor |
 | `Esc` / `Ctrl-C` | Close without navigating |
 
+### Workspace Palette
+
+| Key | Action |
+| --- | --- |
+| `Alt+P` | Open from Zsh, Bash 4+, Fish, or PowerShell 7+ |
+| `Tab` / `Shift+Tab` | Cycle All, Files, Tasks, Git, Compose, and Places |
+| `↑` / `↓`, `Ctrl-K` / `Ctrl-J` | Move the selection |
+| `Enter` | Navigate, open a file, or insert the selected command |
+| `Esc` / `Ctrl-C` | Close and preserve the original editor buffer |
+
+The palette takes one bounded provider snapshot when it opens. Filtering and
+source switching are in-memory; Git and filesystem discovery do not rerun on
+each keystroke.
+
 ## Platform support
 
 | Platform | Distribution | Navigation support |
@@ -426,7 +485,9 @@ against your own index.
 
 ## Privacy and security
 
-- No telemetry, analytics, account, cloud sync, or network call during normal use.
+- No telemetry, analytics, account, or cloud sync.
+- Search, ranking, Palette filtering, and `dgo --version` never wait for the network.
+- A detached release check runs at most daily unless update notifications are disabled.
 - Suggestions and command-history collection are independently disabled by default.
 - Context history stays local, project-scoped, bounded, and inspectable; likely secrets are never stored.
 - History exports omit filesystem paths by default and never overwrite without `--force`.
@@ -443,13 +504,8 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.5.1** | Current stable release | Project-scoped `PROJ` commands from bounded local manifests, background cache refresh, and project-first ranking. |
-| **0.6** | Release candidate in this branch | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
-
-The 0.6 release is published only after the cross-platform release gate,
-installer/package inspection, and final documentation review pass. Later
-features stay proposals until they have an implementation, regression coverage,
-and a real user-facing demo.
+| **0.7.0** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, and cached update awareness. |
+| **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 
 ## Support Dirgo
 

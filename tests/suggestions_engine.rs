@@ -77,6 +77,74 @@ fn directory_provider_reuses_dirgo_ranking_and_shell_escapes_the_edit() {
 }
 
 #[test]
+fn directory_provider_exposes_ordered_focused_root_paths_without_crawling() {
+    let focused = record("/home/Library/Application Support/Adobe/CEP/extensions");
+    let unrelated = record("/home/Library/Unrelated/Noise");
+    let engine = SuggestionEngine::new_indexed(SuggestionData {
+        records: vec![unrelated, focused],
+        ..SuggestionData::default()
+    });
+
+    let suggestions = engine.suggest(&request(
+        ShellKind::Zsh,
+        "/home",
+        "dgo library/adobe/cep/ext",
+    ));
+
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(suggestions[0].source, SuggestionSource::Directory);
+    assert_eq!(suggestions[0].display, "extensions");
+    assert_eq!(
+        suggestions[0].edit.replacement,
+        "dgo '/home/Library/Application Support/Adobe/CEP/extensions'"
+    );
+}
+
+#[test]
+fn directory_suggestion_description_identifies_the_contextual_path() {
+    let engine = SuggestionEngine::new(SuggestionData {
+        records: vec![record("/work/one/gif"), record("/work/two/gif")],
+        ..SuggestionData::default()
+    });
+
+    let suggestions = engine.suggest(&request(ShellKind::Zsh, "/work", "dgo gif"));
+
+    assert_eq!(suggestions.len(), 2);
+    assert_eq!(suggestions[0].description.as_deref(), Some("one/gif"));
+    assert_eq!(suggestions[1].description.as_deref(), Some("two/gif"));
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_description_recognizes_a_symlinked_cwd_alias() {
+    use std::{fs, os::unix::fs::symlink};
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let real_root = temp.path().join("real");
+    let directory = real_root.join("Projects/Slash");
+    fs::create_dir_all(&directory).expect("fixture directory");
+    let alias = temp.path().join("alias");
+    symlink(&real_root, &alias).expect("cwd alias");
+    let canonical_directory = fs::canonicalize(&directory).expect("canonical fixture directory");
+    let engine = SuggestionEngine::new(SuggestionData {
+        records: vec![record(canonical_directory.to_str().expect("UTF-8 fixture"))],
+        ..SuggestionData::default()
+    });
+
+    let suggestions = engine.suggest(&request(
+        ShellKind::Zsh,
+        alias.to_str().expect("UTF-8 fixture"),
+        "dgo sl",
+    ));
+
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(
+        suggestions[0].description.as_deref(),
+        Some("Projects/Slash")
+    );
+}
+
+#[test]
 fn powershell_directory_edits_use_literal_single_quoted_paths() {
     let data = SuggestionData {
         records: vec![record("C:/Work/Rudy's Project")],
@@ -455,6 +523,39 @@ fn external_command_catalog_completes_nested_options_and_package_tools() {
     assert!(
         curl.iter()
             .any(|item| item.edit.replacement == "curl --header")
+    );
+}
+
+#[test]
+fn completed_leaf_command_offers_options_before_a_dash_is_typed() {
+    let suggestions = SuggestionEngine::new(SuggestionData::default()).suggest(&request(
+        ShellKind::Zsh,
+        "/work",
+        "git commit ",
+    ));
+
+    assert!(suggestions.iter().any(|item| {
+        item.display == "-m"
+            && item.edit.replacement == "git commit -m"
+            && item.source == SuggestionSource::Option
+    }));
+}
+
+#[test]
+fn exact_short_option_remains_visible_and_advances_to_its_argument() {
+    let suggestions = SuggestionEngine::new(SuggestionData::default()).suggest(&request(
+        ShellKind::Zsh,
+        "/work",
+        "git commit -m",
+    ));
+
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(suggestions[0].display, "-m");
+    assert_eq!(suggestions[0].edit.replacement, "git commit -m ");
+    assert_eq!(suggestions[0].source, SuggestionSource::Option);
+    assert_eq!(
+        suggestions[0].description.as_deref(),
+        Some("Use the given commit message")
     );
 }
 

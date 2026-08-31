@@ -1188,28 +1188,55 @@ fn render_preview(
 }
 
 fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &PickerState) {
-    let (title, hint) = if state.matching {
-        (
-            if state.unicode {
-                "Finding directories…"
-            } else {
-                "Finding directories..."
-            },
-            "Results update while you type",
-        )
+    let lines = if state.matching {
+        vec![
+            Line::from(Span::styled(
+                if state.unicode {
+                    "Finding directories…"
+                } else {
+                    "Finding directories..."
+                },
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Results update while you type",
+                accent(state.color),
+            )),
+        ]
+    } else if let Some(ignored) = crate::roots::default_ignored_query_segment(&state.query) {
+        vec![
+            Line::from(Span::styled(
+                "No indexed match",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!(
+                    "{} is outside your current search roots.",
+                    crate::terminal::safe_text(ignored)
+                ),
+                muted(),
+            )),
+            Line::from(Span::styled(
+                "Use an exact path or add a focused root.",
+                muted(),
+            )),
+            Line::from(Span::styled("dgo roots add <PATH>", accent(state.color))),
+        ]
     } else {
-        ("No directories match", "Try a shorter query")
+        vec![
+            Line::from(Span::styled(
+                "No directories match",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled("Try a shorter query", accent(state.color))),
+        ]
     };
-    let message = Paragraph::new(vec![
-        Line::from(Span::styled(
-            title,
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(hint, accent(state.color))),
-    ])
-    .alignment(Alignment::Center)
-    .wrap(Wrap { trim: true });
+    let message = Paragraph::new(lines)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
     frame.render_widget(message, area);
 }
 
@@ -1450,6 +1477,23 @@ mod tests {
         let output = rendered(72, 12, &[]);
         assert!(output.contains("No directories match"));
         assert!(output.contains("Try a shorter query"));
+    }
+
+    #[test]
+    fn ignored_path_empty_state_recommends_a_focused_root_without_an_error_modal() {
+        let backend = TestBackend::new(72, 12);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut state = PickerState::new("library/adobe/cep", Options::default());
+        state.color = false;
+        state.matching = false;
+        terminal
+            .draw(|frame| render(frame, &[], &mut state, Availability::default()))
+            .expect("draw");
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("No indexed match"));
+        assert!(output.contains("Library is outside your current search roots"));
+        assert!(output.contains("dgo roots add <PATH>"));
     }
 
     #[test]

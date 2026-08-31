@@ -1,4 +1,5 @@
 use crate::search::{self, SearchContext};
+use std::fs;
 
 use super::super::{Suggestion, SuggestionData, SuggestionRequest, SuggestionSource, TextEdit};
 use super::escape::escape_token;
@@ -26,6 +27,7 @@ pub fn directory_suggestions(
     let Ok(response) = search::resolve(&query_parts, &context, true, true) else {
         return Vec::new();
     };
+    let canonical_cwd = fs::canonicalize(&request.cwd).ok();
 
     response
         .candidates
@@ -38,6 +40,18 @@ pub fn directory_suggestions(
             };
             let path = candidate.path.to_string_lossy();
             let escaped = escape_token(request.shell, &path);
+            let description = candidate
+                .path
+                .strip_prefix(&request.cwd)
+                .ok()
+                .or_else(|| {
+                    canonical_cwd
+                        .as_deref()
+                        .and_then(|cwd| candidate.path.strip_prefix(cwd).ok())
+                })
+                .filter(|relative| !relative.as_os_str().is_empty())
+                .map(|relative| relative.display().to_string())
+                .unwrap_or_else(|| candidate.display_path.clone());
             Suggestion {
                 id: format!("directory:{}", candidate.path.display()),
                 edit: TextEdit {
@@ -45,10 +59,7 @@ pub fn directory_suggestions(
                     replacement: format!("{command} {escaped}"),
                 },
                 display: candidate.basename,
-                description: Some(match source {
-                    SuggestionSource::NavigationHistory => "NAV".into(),
-                    _ => "DIR".into(),
-                }),
+                description: Some(description),
                 source,
                 score: candidate.score,
             }

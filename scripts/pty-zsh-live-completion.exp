@@ -2,11 +2,36 @@
 
 set timeout 20
 encoding system utf-8
-log_user 0
+set send_slow {1 0.008}
+if {[info exists env(DGO_PTY_DEBUG)]} {
+    log_user 1
+} else {
+    log_user 0
+}
 
 if {![info exists env(DGO_BIN)]} {
     puts stderr "DGO_BIN is required"
     exit 2
+}
+
+# ZLE can still have an asynchronous redraw queued when a scenario finishes.
+# Always cancel the editor first, wait for a real prompt, and bound both the
+# prompt and EOF waits so a failed cleanup can never hang the release gate.
+proc finish_shell {prompt} {
+    send -- "\003"
+    expect {
+        -exact $prompt {}
+        eof { return 0 }
+        timeout { return -1 }
+    }
+    send -- "exit 0\r"
+    expect {
+        eof {
+            set result [wait]
+            return [lindex $result 3]
+        }
+        timeout { return -1 }
+    }
 }
 
 set sandbox "/tmp/dirgo-zsh-live-[pid]-[clock seconds]"
@@ -77,10 +102,53 @@ if {[lindex $project_refresh 3] != 0} {
     exit 1
 }
 
+# Project commands run in a fresh editor session so their project scope is an
+# explicit precondition rather than a side effect of the stress scenario below.
+set env(PS1) "DGO-PROJECT-BOOT> "
+spawn -noecho /bin/zsh -f
+expect -exact "DGO-PROJECT-BOOT> "
+send -- "stty rows 24 columns 100; PS1='DGO-PROJECT> '; builtin cd -- \"\$DGO_TEST_ROOT/Projects/Punk\"; eval \"\$(\$DGO_BIN init zsh)\"; function _dgo_project_probe() { print -r -- \"\$PWD\" >\| \"\$DGO_TEST_STATE\"; print -r -- \"\$BUFFER\" >> \"\$DGO_TEST_STATE\"; }; zle -N _dgo_project_probe; bindkey '^T' _dgo_project_probe; print -r -- PROJECT':'ready\r"
+expect -exact "PROJECT:ready"
+expect -exact "DGO-PROJECT> "
+send -s -- "pnpm run bu"
+expect {
+    -re {(?s)DIRGO.*suggestions.*build.*proj.*package.json script.*punk-web.*\[Tab\] Insert.*╰} {}
+    timeout {
+        puts stderr "project command panel missed its source or description"
+        send -- "\003"
+        expect -exact "DGO-PROJECT> "
+        send -- "exit 1\r"
+        expect eof
+        file delete -force $sandbox
+        exit 1
+    }
+}
+send -- "\t"
+after 50
+send -- "\024"
+after 20
+set isolated_project_state_file [open $env(DGO_TEST_STATE) r]
+set isolated_project_state [read $isolated_project_state_file]
+close $isolated_project_state_file
+if {![regexp {(?s)/Projects/Punk\s+pnpm run build\s*$} $isolated_project_state]} {
+    puts stderr "Project command insertion state: $isolated_project_state"
+    send -- "\003"
+    expect -exact "DGO-PROJECT> "
+    send -- "exit 1\r"
+    expect eof
+    file delete -force $sandbox
+    exit 1
+}
+if {[finish_shell "DGO-PROJECT> "] != 0} {
+    puts stderr "project command shell did not terminate cleanly"
+    file delete -force $sandbox
+    exit 1
+}
+
 set env(PS1) "DGO-BOOT> "
 spawn -noecho /bin/zsh -f
 expect -exact "DGO-BOOT> "
-send -- "stty rows 24 columns 100; PS1='DGO-LIVE> '; autoload -Uz add-zle-hook-widget; function _dgo_test_ghost() { POSTDISPLAY=' ghost'; }; function _dgo_test_tail() { \[\[ \"\$POSTDISPLAY\" == *' tail' \]\] || POSTDISPLAY+=' tail'; }; function _dgo_test_tab() { :; }; function _dgo_test_probe() { print -r -- \"\$POSTDISPLAY\" >\| \"\$DGO_TEST_POSTDISPLAY\"; print -r -- \"loaded=\${#_DGO_LIVE_VALUES} total=\$_DGO_LIVE_TOTAL selected=\$_DGO_LIVE_SELECTED visible=\$_DGO_LIVE_VISIBLE description=\${_DGO_LIVE_DESCRIPTIONS\[_DGO_LIVE_SELECTED\]} loading=\$_DGO_LIVE_LOADING fd=\$_DGO_LIVE_LOAD_FD generation=\$_DGO_LIVE_GENERATION cursor=\$CURSOR buffer=\$BUFFER last=\$_DGO_LIVE_LAST_BUFFER snapshot_before=\$_DGO_LIVE_SNAPSHOT_BEFORE snapshot_after=\$_DGO_LIVE_SNAPSHOT_AFTER rows=\$LINES/\$_DGO_LIVE_LAST_LINES columns=\$COLUMNS/\$_DGO_LIVE_LAST_COLUMNS\" >\| \"\$DGO_TEST_STATE\"; }; zle -N _dgo_test_tab; zle -N _dgo_test_probe; bindkey '^I' _dgo_test_tab; add-zle-hook-widget line-pre-redraw _dgo_test_ghost; eval \"\$(\$DGO_BIN init zsh)\"; bindkey -M main '^T' _dgo_test_probe; bindkey -M emacs '^T' _dgo_test_probe; bindkey -M viins '^T' _dgo_test_probe; add-zle-hook-widget line-pre-redraw _dgo_test_tail; cd \"\$DGO_TEST_ROOT\"; print -r -- LIVE':'ready\r"
+send -- "stty rows 24 columns 100; PS1='DGO-LIVE> '; autoload -Uz add-zle-hook-widget; function _dgo_test_ghost() { POSTDISPLAY=' ghost'; }; function _dgo_test_tail() { \[\[ \"\$POSTDISPLAY\" == *' tail' \]\] || POSTDISPLAY+=' tail'; }; function _dgo_test_tab() { :; }; function _dgo_test_probe() { print -r -- \"\$POSTDISPLAY\" >\| \"\$DGO_TEST_POSTDISPLAY\"; print -r -- \"pwd=\$PWD loaded=\${#_DGO_LIVE_VALUES} total=\$_DGO_LIVE_TOTAL selected=\$_DGO_LIVE_SELECTED visible=\$_DGO_LIVE_VISIBLE description=\${_DGO_LIVE_DESCRIPTIONS\[_DGO_LIVE_SELECTED\]} loading=\$_DGO_LIVE_LOADING fd=\$_DGO_LIVE_LOAD_FD generation=\$_DGO_LIVE_GENERATION cursor=\$CURSOR buffer=\$BUFFER last=\$_DGO_LIVE_LAST_BUFFER snapshot_before=\$_DGO_LIVE_SNAPSHOT_BEFORE snapshot_after=\$_DGO_LIVE_SNAPSHOT_AFTER rows=\$LINES/\$_DGO_LIVE_LAST_LINES columns=\$COLUMNS/\$_DGO_LIVE_LAST_COLUMNS timeout=\$_DGO_LIVE_TIMEOUT_SECONDS debounce=\$_DGO_LIVE_DEBOUNCE_SECONDS\" >\| \"\$DGO_TEST_STATE\"; }; zle -N _dgo_test_tab; zle -N _dgo_test_probe; bindkey '^I' _dgo_test_tab; add-zle-hook-widget line-pre-redraw _dgo_test_ghost; eval \"\$(\$DGO_BIN init zsh)\"; bindkey -M main '^T' _dgo_test_probe; bindkey -M emacs '^T' _dgo_test_probe; bindkey -M viins '^T' _dgo_test_probe; add-zle-hook-widget line-pre-redraw _dgo_test_tail; cd \"\$DGO_TEST_ROOT\"; print -r -- LIVE':'ready\r"
 expect -exact "LIVE:ready"
 expect -exact "DGO-LIVE> "
 
@@ -89,7 +157,7 @@ foreach character {d g o { } s l} {
     after 8
 }
 expect {
-    -re {(?s)╭.*● DIRGO.*0[.]6.*suggestions.*1–3 of 8.*›.*Slash.*Slate.*Slx-Alpha.*\[↑↓\] Select.*\[Tab\] Insert.*\[Esc\] Close.*╰} {}
+    -re {(?s)╭.*● DIRGO.*0[.]7.*suggestions.*1–3 of 8.*›.*Slash.*Slate.*Slx-Alpha.*\[↑↓\] Select.*\[Tab\] Insert.*\[Esc\] Close.*╰} {}
     timeout { puts stderr "automatic Zsh list did not render the calm three-row state"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
 }
 expect {
@@ -115,7 +183,7 @@ if {[string first "Slx-Charlie" $postdisplay] < 0 || [string first "Slx-Delta" $
     file delete -force $sandbox
     exit 1
 }
-if {[string first " ghost" $postdisplay] < 0 || [string first "DIRGO 0.6" $postdisplay] < 0} {
+if {[string first " ghost" $postdisplay] < 0 || [string first "DIRGO 0.7" $postdisplay] < 0} {
     puts stderr "Dirgo replaced another Zsh plugin's POSTDISPLAY"
     send -- "\003exit\r"
     expect eof
@@ -304,7 +372,7 @@ send -- "\003"
 expect -exact "DGO-LIVE> "
 
 # Narrow terminals move the same explanation below the active row.
-send -- "stty columns 82; print -r -- LIVE':'narrow-ready guard=\$_DGO_LIVE_GUARD last=\$_DGO_LIVE_LAST_BUFFER fd=\$_DGO_LIVE_FD keymap=\$_DGO_LIVE_BASE_KEYMAP\r"
+send -- "COLUMNS=82; stty columns 82; print -r -- LIVE':'narrow-ready guard=\$_DGO_LIVE_GUARD last=\$_DGO_LIVE_LAST_BUFFER fd=\$_DGO_LIVE_FD keymap=\$_DGO_LIVE_BASE_KEYMAP\r"
 expect -re {LIVE:narrow-ready guard=0[^\r\n]*}
 expect -exact "DGO-LIVE> "
 send -- "git co"
@@ -332,7 +400,7 @@ expect {
 send -- "\003"
 expect -exact "DGO-LIVE> "
 
-send -- "stty columns 100\r"
+send -- "COLUMNS=100; stty columns 100\r"
 expect -exact "DGO-LIVE> "
 
 # A rendered model becomes unselectable as soon as the cursor snapshot changes.
@@ -340,6 +408,18 @@ send -- "dgo sl"
 expect {
     -re {(?s)DIRGO.*suggestions.*Slash} {}
     timeout { puts stderr "stale-model fixture did not render"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\024"
+after 20
+set directory_state_file [open $env(DGO_TEST_STATE) r]
+set directory_state [read $directory_state_file]
+close $directory_state_file
+if {![regexp {description=.*Projects/Slash} $directory_state]} {
+    puts stderr "directory suggestion did not expose its path: $directory_state"
+    send -- "\003exit\r"
+    expect eof
+    file delete -force $sandbox
+    exit 1
 }
 send -- "\033\[D"
 after 5
@@ -359,38 +439,38 @@ if {[string first "/Projects/Slash" $stale_state] >= 0} {
 }
 send -- "\003"
 expect -exact "DGO-LIVE> "
+after 100
 
-# Project commands keep the prompt visible, show their source and description,
-# and Tab changes only the editable buffer.
-send -- "cd \"\$DGO_TEST_ROOT/Projects/Punk\"; print -r -- LIVE':'project-ready guard=\$_DGO_LIVE_GUARD\r"
-expect -exact "LIVE:project-ready guard=0"
-expect -exact "DGO-LIVE> "
-send -- "pnpm run bu"
+# A completed leaf command offers its flags before the user has to guess the
+# first dash. Short options remain ordinary insertion data.
+send -s -- "git commit "
 expect {
-    -re {(?s)DIRGO.*suggestions.*build.*proj.*package.json script.*punk-web.*\[Tab\] Insert.*╰} {}
-    timeout { puts stderr "project command panel missed its source or description"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
-}
-send -- "\t"
-after 50
-send -- "\024"
-after 20
-set project_state_file [open $env(DGO_TEST_STATE) r]
-set project_state [read $project_state_file]
-close $project_state_file
-if {![regexp {buffer=pnpm run build last=} $project_state]} {
-    puts stderr "Project command insertion state: $project_state"
-    send -- "\003exit\r"
-    expect eof
-    file delete -force $sandbox
-    exit 1
+    -re {(?s)DIRGO.*suggestions.*-a.*Stage tracked changes.*-m.*--amend} {}
+    timeout {
+        send -- "\024"
+        after 50
+        if {[file exists $env(DGO_TEST_STATE)]} {
+            set leaf_timeout_state_file [open $env(DGO_TEST_STATE) r]
+            puts stderr "Leaf option timeout state: [read $leaf_timeout_state_file]"
+            close $leaf_timeout_state_file
+        }
+        puts stderr "leaf command did not expose its options"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1
+    }
 }
 send -- "\003"
 expect -exact "DGO-LIVE> "
+after 100
+send -s -- "git commit -m"
+expect {
+    -re {(?s)DIRGO.*suggestions.*-m.*Use the given commit message} {}
+    timeout { puts stderr "short option prefix did not render -m"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
+}
+send -- "\003"
+expect -exact "DGO-LIVE> "
+after 100
 
-send -- "exit 0\r"
-expect eof
-set result [wait]
-if {[lindex $result 3] != 0} {
+if {[finish_shell "DGO-LIVE> "] != 0} {
+    puts stderr "main live-completion shell did not terminate cleanly"
     file delete -force $sandbox
     exit 1
 }
@@ -405,7 +485,7 @@ expect -exact "ASCII:ready"
 expect -exact "DGO-ASCII> "
 send -- "git co"
 expect {
-    -re {(?s)\* DIRGO 0[.]6.*suggestions.*>  commit.*\| Record changes to the repository} {
+    -re {(?s)\* DIRGO 0[.]7.*suggestions.*>  commit.*\| Record changes to the repository} {
         set ascii_preview $expect_out(buffer)
         if {[regexp {[·–›↑↓…↳│]} $ascii_preview]} {
             puts stderr "DGO_NO_UNICODE wide preview emitted a Unicode UI glyph"
@@ -417,12 +497,8 @@ expect {
     }
     timeout { puts stderr "DGO_NO_UNICODE wide preview did not render its ASCII layout"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
 }
-send -- "\003"
-expect -exact "DGO-ASCII> "
-send -- "exit 0\r"
-expect eof
-set ascii_result [wait]
-if {[lindex $ascii_result 3] != 0} {
+if {[finish_shell "DGO-ASCII> "] != 0} {
+    puts stderr "ASCII preview shell did not terminate cleanly"
     file delete -force $sandbox
     exit 1
 }
@@ -449,12 +525,8 @@ expect {
     }
     timeout { puts stderr "short terminal did not render its bounded command list"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
 }
-send -- "\003"
-expect -exact "DGO-SHORT> "
-send -- "exit 0\r"
-expect eof
-set short_result [wait]
-if {[lindex $short_result 3] != 0} {
+if {[finish_shell "DGO-SHORT> "] != 0} {
+    puts stderr "short-terminal shell did not terminate cleanly"
     file delete -force $sandbox
     exit 1
 }
@@ -468,7 +540,7 @@ expect -exact "NOCOLOR:ready"
 expect -exact "DGO-NARROW> "
 send -- "dgo sl"
 expect {
-    -re {(?s)\* DIRGO 0[.]6.*suggestions.*1-3 of 8.*>  Slash  \| directory.*\[Up/Down\] Select \| \[Tab\] Insert \| \[Esc\] Close} {
+    -re {(?s)\* DIRGO 0[.]7.*suggestions.*1-3 of 8.*>  Slash  \| directory.*\[Up/Down\] Select \| \[Tab\] Insert \| \[Esc\] Close} {
         set panel $expect_out(buffer)
         if {[regexp {\x1b\[[0-9;]*mDIRGO} $panel]} {
             puts stderr "NO_COLOR Zsh panel emitted a styled Dirgo label"
@@ -487,10 +559,10 @@ expect {
     }
     timeout { puts stderr "NO_COLOR Zsh panel did not render its readable fallback"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
 }
-send -- "\003"
-expect -exact "DGO-NARROW> "
-send -- "exit 0\r"
-expect eof
-set no_color_result [wait]
+set no_color_status [finish_shell "DGO-NARROW> "]
 file delete -force $sandbox
-exit [expr {[lindex $no_color_result 3] == 0 ? 0 : 1}]
+if {$no_color_status != 0} {
+    puts stderr "NO_COLOR shell did not terminate cleanly"
+    exit 1
+}
+exit 0

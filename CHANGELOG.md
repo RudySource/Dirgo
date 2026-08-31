@@ -4,6 +4,37 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-01
+
+### Added
+
+- Add `dgo palette` and an `Alt+P` Workspace Palette for files, project tasks, Git branches and worktrees, Compose services, bookmarks, and indexed projects.
+- Add live All/Files/Tasks/Git/Compose/Places source switching over one bounded snapshot, plus debounced lazy previews and adaptive color/Unicode fallbacks.
+- Add `dgo roots list|add|remove` with comment-preserving atomic configuration edits, focused-root diagnostics, and optional deferred refresh.
+- Add ordered path-segment search for `/` and `\\`, including omitted intermediate folders and focused roots below normally ignored parents.
+- Add cached update status to interactive `dgo --version` while preserving exact one-line output in pipes, plus existing notification on/off controls.
+
+### Changed
+
+- Extend `dgo doctor` and `dgo stats` with root, focused-root, Palette-provider, and local update-state reporting.
+- Collect Palette providers concurrently under per-source time and item budgets; filtering and source switching never rerun discovery.
+
+### Security
+
+- Return versioned Palette action frames that either navigate literally or replace the editor buffer; Task, Compose, and Git branch selections never autoexecute.
+- Quote structured Git commands per shell, reject controls and newlines at the shell boundary, and avoid `eval` and `Invoke-Expression` for Palette results.
+- Publish update cache and notification state atomically with private permissions and reject symlink targets.
+- Keep focused roots explicit and narrow; Dirgo does not automatically crawl all of `Library`, `AppData`, `/`, system folders, or ignored heavy directories.
+
+### Fixed
+
+- Clear the Palette query buffer after navigation so a bookmark query cannot become the next accidental command.
+- Keep release-version labels derived from Cargo metadata instead of hard-coding the previous minor version in picker tests.
+- Offer options immediately after a completed leaf command and keep an exact option such as `git commit -m` visible as a safe trailing-space insertion.
+- Show a contextual path for directory suggestions so equal basenames remain distinguishable in the live panel.
+
+## [0.6.0] - 2026-08-29
+
 ### Added
 
 - Add the opt-in Context Engine with completed-command events containing available cwd, project root, exit status, duration, and shell session context.

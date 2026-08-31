@@ -157,6 +157,21 @@ impl SuggestionEngine {
         if query.is_empty() {
             return Vec::new();
         }
+        if let Some(first_segment) = first_path_segment(query) {
+            return self
+                .data
+                .records
+                .iter()
+                .filter(|record| {
+                    record
+                        .display_path
+                        .split(['/', '\\'])
+                        .any(|segment| starts_with_smart_case(segment, first_segment))
+                })
+                .take(MAX_PREFIX_CANDIDATES)
+                .cloned()
+                .collect();
+        }
         let folded = query.to_lowercase();
         let Some(directory_order) = &self.directory_order else {
             return self
@@ -179,6 +194,28 @@ impl SuggestionEngine {
             .take(MAX_PREFIX_CANDIDATES)
             .cloned()
             .collect()
+    }
+}
+
+fn first_path_segment(query: &str) -> Option<&str> {
+    query
+        .chars()
+        .any(|character| character.is_whitespace() || matches!(character, '/' | '\\'))
+        .then(|| {
+            query
+                .split(|character: char| {
+                    character.is_whitespace() || matches!(character, '/' | '\\')
+                })
+                .find(|segment| !segment.is_empty())
+        })
+        .flatten()
+}
+
+fn starts_with_smart_case(value: &str, query: &str) -> bool {
+    if query.chars().any(char::is_uppercase) {
+        value.starts_with(query)
+    } else {
+        value.to_lowercase().starts_with(&query.to_lowercase())
     }
 }
 

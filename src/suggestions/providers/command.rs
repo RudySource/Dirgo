@@ -19,7 +19,11 @@ pub fn command_suggestions(
             command = next;
         }
     }
-    if context.is_option() {
+    if context.is_option()
+        || (context.current_token().is_empty()
+            && command.subcommands.is_empty()
+            && !command.options.is_empty())
+    {
         option_suggestions(request, context, command)
     } else {
         subcommand_suggestions(request, context, command)
@@ -106,6 +110,9 @@ fn suggestion(
 ) -> Suggestion {
     let mut replacement = request.before_cursor[..context.replacement_start()].to_owned();
     replacement.push_str(value);
+    if source == SuggestionSource::Option && context.current_token() == value {
+        replacement.push(' ');
+    }
     let kind = if source == SuggestionSource::Option {
         "option"
     } else {

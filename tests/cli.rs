@@ -67,7 +67,7 @@ fn update_notifications_are_visible_and_can_be_disabled_persistently() {
         .args(["query", "punk"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("Dirgo 9.9.9 is available"));
+        .stderr(predicate::str::contains("Dirgo 9.9.9 is ready"));
 
     fixture
         .command()
@@ -151,7 +151,7 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("setup init completions refresh query explain bench root repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications")
+            predicate::str::contains("setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications")
                 .and(predicate::str::contains("_dgo_bookmarks")),
         );
 }
@@ -370,6 +370,11 @@ fn doctor_reports_operational_checks_without_building_an_index() {
                 .and(predicate::str::contains("storage        cache="))
                 .and(predicate::str::contains("index          missing"))
                 .and(predicate::str::contains("state          healthy"))
+                .and(predicate::str::contains("roots          1 configured"))
+                .and(predicate::str::contains("update         "))
+                .and(predicate::str::contains(
+                    "palette        files/tasks/git/compose/places",
+                ))
                 .and(predicate::str::contains("actions        open="))
                 .and(predicate::str::contains("shell startup")),
         );
@@ -428,12 +433,11 @@ fn local_bench_reports_measurements_without_recording_navigation() {
                 .and(predicate::str::contains("Fallback candidate build"))
                 .and(predicate::str::contains("Fuzzy resolution")),
         );
-    fixture
-        .command()
-        .arg("stats")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Dirgo navigations     0"));
+    fixture.command().arg("stats").assert().success().stdout(
+        predicate::str::contains("Dirgo navigations     0")
+            .and(predicate::str::contains("Search roots          1"))
+            .and(predicate::str::contains("Accessible roots      1")),
+    );
 }
 
 #[test]

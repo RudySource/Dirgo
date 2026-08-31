@@ -14,6 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{DirgoError, Result};
 
@@ -25,10 +26,32 @@ pub struct PickerOptions {
     pub unicode: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerAccept {
+    Enter,
+    Tab,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PickerSelection {
+    index: usize,
+    accept: PickerAccept,
+}
+
+impl PickerSelection {
+    pub fn index(self) -> usize {
+        self.index
+    }
+
+    pub fn accept(self) -> PickerAccept {
+        self.accept
+    }
+}
+
 pub fn pick_suggestion(
     suggestions: &[Suggestion],
     options: PickerOptions,
-) -> Result<Option<String>> {
+) -> Result<Option<PickerSelection>> {
     if suggestions.is_empty()
         || !io::stderr().is_terminal()
         || std::env::var("TERM").is_ok_and(|term| term == "dumb")
@@ -61,8 +84,17 @@ pub fn pick_suggestion(
                 selected = selected.checked_sub(1).unwrap_or(suggestions.len() - 1);
             }
             KeyCode::Down | KeyCode::Char('j') => selected = (selected + 1) % suggestions.len(),
-            KeyCode::Enter | KeyCode::Tab => {
-                break Some(suggestions[selected].edit.replacement.clone());
+            KeyCode::Enter => {
+                break Some(PickerSelection {
+                    index: selected,
+                    accept: PickerAccept::Enter,
+                });
+            }
+            KeyCode::Tab => {
+                break Some(PickerSelection {
+                    index: selected,
+                    accept: PickerAccept::Tab,
+                });
             }
             KeyCode::Esc | KeyCode::Char('q') => break None,
             _ => {}
@@ -83,7 +115,7 @@ fn render(
     selected: usize,
     options: PickerOptions,
 ) {
-    let area = picker_area(frame.area(), suggestions.len());
+    let area = picker_area(frame.area(), suggestions);
     let surface = if options.color {
         Style::default()
             .fg(Color::Rgb(244, 247, 248))
@@ -157,6 +189,7 @@ fn render(
     } else {
         Style::default().add_modifier(Modifier::BOLD)
     };
+    let detail_width = usize::from(rows[1].width.saturating_sub(34)).max(1);
     let items: Vec<ListItem<'_>> = suggestions
         .iter()
         .enumerate()
@@ -173,7 +206,8 @@ fn render(
             } else {
                 "   "
             };
-            let item = ListItem::new(Line::from(vec![
+            let detail_lines = wrapped_detail(detail, detail_width);
+            let mut lines = vec![Line::from(vec![
                 Span::styled(marker, picker_accent(options.color)),
                 Span::styled(
                     format!("{:<24}", clipped(&suggestion.display, 22, options.unicode)),
@@ -183,8 +217,15 @@ fn render(
                     format!("{:<7}", source_label(suggestion.source)),
                     source_style(suggestion.source, options.color),
                 ),
-                Span::styled(detail, muted(options.color)),
-            ]));
+                Span::styled(detail_lines[0].clone(), muted(options.color)),
+            ])];
+            if let Some(continuation) = detail_lines.get(1) {
+                lines.push(Line::from(vec![
+                    Span::raw("                                  "),
+                    Span::styled(continuation.clone(), muted(options.color)),
+                ]));
+            }
+            let item = ListItem::new(lines);
             if index == selected {
                 item.style(selected_style)
             } else {
@@ -201,37 +242,103 @@ fn render(
         rows[1],
         &mut state,
     );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                if options.unicode { "↑↓" } else { "Up/Down" },
-                key_style(options.color),
-            ),
-            Span::styled("  Select     ", muted(options.color)),
+    let selected_is_directory = suggestions.get(selected).is_some_and(|suggestion| {
+        matches!(
+            suggestion.source,
+            SuggestionSource::Directory | SuggestionSource::NavigationHistory
+        )
+    });
+    let action_spans = if selected_is_directory {
+        vec![
+            Span::styled("Enter", key_style(options.color)),
+            Span::styled("  Open     ", muted(options.color)),
+            Span::styled("Tab", key_style(options.color)),
+            Span::styled("  Insert     ", muted(options.color)),
+        ]
+    } else {
+        vec![
             Span::styled("Tab/Enter", key_style(options.color)),
             Span::styled("  Insert     ", muted(options.color)),
-            Span::styled("Esc", key_style(options.color)),
-            Span::styled("  Close", muted(options.color)),
-        ]))
-        .style(surface),
-        rows[2],
-    );
+        ]
+    };
+    let mut footer = vec![
+        Span::styled(
+            if options.unicode { "↑↓" } else { "Up/Down" },
+            key_style(options.color),
+        ),
+        Span::styled("  Select     ", muted(options.color)),
+    ];
+    footer.extend(action_spans);
+    footer.extend([
+        Span::styled("Esc", key_style(options.color)),
+        Span::styled("  Close", muted(options.color)),
+    ]);
+    frame.render_widget(Paragraph::new(Line::from(footer)).style(surface), rows[2]);
 }
 
-fn picker_area(area: Rect, suggestions: usize) -> Rect {
+fn picker_area(area: Rect, suggestions: &[Suggestion]) -> Rect {
     let width = area.width.min(112);
-    let height = area.height.min(
-        u16::try_from(suggestions)
-            .unwrap_or(u16::MAX)
-            .saturating_add(6)
-            .clamp(8, 18),
-    );
+    let detail_width = usize::from(width.saturating_sub(38)).max(1);
+    let item_rows = suggestions.iter().fold(0_u16, |rows, suggestion| {
+        let detail = suggestion
+            .description
+            .as_deref()
+            .filter(|description| {
+                !description.eq_ignore_ascii_case(source_label(suggestion.source))
+            })
+            .unwrap_or(&suggestion.edit.replacement);
+        rows.saturating_add(if UnicodeWidthStr::width(detail) > detail_width {
+            2
+        } else {
+            1
+        })
+    });
+    let height = area.height.min(item_rows.saturating_add(6).clamp(8, 18));
     Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
         width,
         height,
     )
+}
+
+fn wrapped_detail(value: &str, width: usize) -> Vec<String> {
+    if UnicodeWidthStr::width(value) <= width {
+        return vec![value.to_owned()];
+    }
+
+    let (first, remainder) = split_at_width(value, width);
+    if UnicodeWidthStr::width(remainder) <= width {
+        return vec![first.to_owned(), remainder.to_owned()];
+    }
+
+    let suffix_width = width.saturating_sub(1);
+    let suffix = suffix_at_width(remainder, suffix_width);
+    vec![first.to_owned(), format!("…{suffix}")]
+}
+
+fn split_at_width(value: &str, width: usize) -> (&str, &str) {
+    let mut used = 0_usize;
+    for (index, character) in value.char_indices() {
+        let character_width = character.width().unwrap_or(0);
+        if used.saturating_add(character_width) > width {
+            return (&value[..index], &value[index..]);
+        }
+        used = used.saturating_add(character_width);
+    }
+    (value, "")
+}
+
+fn suffix_at_width(value: &str, width: usize) -> &str {
+    let mut used = 0_usize;
+    for (index, character) in value.char_indices().rev() {
+        let character_width = character.width().unwrap_or(0);
+        if used.saturating_add(character_width) > width {
+            return &value[index + character.len_utf8()..];
+        }
+        used = used.saturating_add(character_width);
+    }
+    value
 }
 
 fn range_dash(options: PickerOptions) -> &'static str {
@@ -401,6 +508,30 @@ mod tests {
         terminal
     }
 
+    fn rendered_long_directory_picker() -> Terminal<TestBackend> {
+        let suggestions = [suggestion(
+            "slash",
+            "/workspace/projects/slash/frontend/native/android/src/final-component",
+            SuggestionSource::Directory,
+        )];
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    &suggestions,
+                    0,
+                    PickerOptions {
+                        color: false,
+                        unicode: true,
+                    },
+                );
+            })
+            .expect("draw");
+        terminal
+    }
+
     #[test]
     fn picker_layout_is_bounded_and_source_labels_are_textual() {
         assert_eq!(
@@ -426,7 +557,10 @@ mod tests {
         });
         let output = terminal.backend().to_string();
 
-        assert!(output.contains("● DIRGO 0.6"));
+        let version = env!("CARGO_PKG_VERSION")
+            .rsplit_once('.')
+            .map_or(env!("CARGO_PKG_VERSION"), |(short, _)| short);
+        assert!(output.contains(&format!("● DIRGO {version}")));
         assert!(output.contains("1–2 of 2"));
         assert!(output.contains("Record changes to the repository"));
         assert!(output.contains("Tab/Enter  Insert"));
@@ -462,5 +596,31 @@ mod tests {
                 .filter_map(|position| buffer.cell(position))
                 .any(|cell| cell.symbol() == ">" && cell.modifier.contains(Modifier::BOLD))
         );
+    }
+
+    #[test]
+    fn long_directory_detail_wraps_and_keeps_the_path_tail_visible() {
+        let terminal = rendered_long_directory_picker();
+        let buffer = terminal.backend().buffer();
+        let rows = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .filter_map(|x| buffer.cell((x, y)))
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        let first_row = rows
+            .iter()
+            .position(|row| row.contains("/workspace/projects"))
+            .expect("first path row");
+        let continuation_row = rows
+            .iter()
+            .position(|row| row.contains("final-component"))
+            .expect("wrapped path tail");
+
+        assert_eq!(continuation_row, first_row + 1);
+        assert!(!rows[continuation_row].contains("slash  DIR"));
     }
 }

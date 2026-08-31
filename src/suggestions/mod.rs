@@ -6,6 +6,7 @@ mod privacy;
 mod project;
 mod protocol;
 mod providers;
+mod result;
 mod sanitize;
 pub(crate) mod settings;
 mod specs;
@@ -16,7 +17,7 @@ mod types;
 pub use catalog::{CommandCatalog, CommandOption, CommandSpec, portable_command_name};
 pub use context::CompletionContext;
 pub use engine::{SuggestionData, SuggestionEngine, SuggestionPage};
-pub use picker::{PickerOptions, pick_suggestion};
+pub use picker::{PickerAccept, PickerOptions, PickerSelection, pick_suggestion};
 pub use privacy::is_sensitive_command;
 pub use project::{
     ProjectCommand, ProjectCommandSnapshot, claim_project_command_refresh,
@@ -28,6 +29,7 @@ pub use protocol::{
     encode_response_line, read_bounded_frame,
 };
 pub use providers::CommandHistoryEntry;
+pub use result::{SuggestionPickerResultFrame, SuggestionPickerResultKind};
 pub use sanitize::sanitize_suggestion;
 pub use settings::write_suggestions_config;
 pub use store::{

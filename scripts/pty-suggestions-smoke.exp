@@ -88,13 +88,22 @@ proc run_shell {name executable setup binding_check verify picker_reset picker_v
     send -- "$picker_reset\r"
     expect -exact "DGO-$name> "
     send -- "cd pun"
+    if {$name eq "zsh"} {
+        expect {
+            -nocase -re {DIRGO 0\.7 +suggestions} {}
+            timeout { puts stderr "$name live suggestion did not become ready"; send -- "\003exit\r"; expect eof; return 1 }
+        }
+    }
     send -- "\x1b\[Z"
     expect {
-        -re {(?i)dirgo.*suggestions} {}
+        -exact "\033\[?1049h" {}
         timeout { puts stderr "$name suggestion picker did not open"; send -- "\003exit\r"; expect eof; return 1 }
     }
     send -- "\r"
-    after 300
+    expect {
+        -exact "\033\[?1049l" {}
+        timeout { puts stderr "$name suggestion picker did not close after selection"; send -- "\003exit\r"; expect eof; return 1 }
+    }
     send -- "\r"
     expect -exact "DGO-$name> "
     send -- "$picker_verify\r"
