@@ -161,7 +161,7 @@ scene 6 'Local cache only' 'Know when an update is ready' 'dgo --version never w
   " |dgo update-notifications off" \
   "+|Piped version stays one line"
 
-if grep -R -E '/Users/|dirgo-workspace-palette\.[A-Za-z0-9]+' "$demo_root"/scene-*.svg >/dev/null; then
+if grep -R -E '/[U]sers/|dirgo-workspace-palette\.[A-Za-z0-9]+' "$demo_root"/scene-*.svg >/dev/null; then
   echo 'rendered scene contains a personal or temporary path' >&2
   exit 1
 fi

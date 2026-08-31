@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use dirgo::{
     config::Config,
@@ -22,6 +22,10 @@ fn app_paths(temp: &tempfile::TempDir) -> AppPaths {
     }
 }
 
+fn toml_string(path: &Path) -> String {
+    format!("{:?}", path.display().to_string())
+}
+
 #[test]
 fn root_mutation_preserves_comments_formatting_and_unrelated_sections() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -32,8 +36,8 @@ fn root_mutation_preserves_comments_formatting_and_unrelated_sections() {
     fs::create_dir_all(&added_root).expect("added root");
 
     let original = format!(
-        "# owner note\nschema_version = 1\nroots = [\"{}\"] # keep root note\nignore = [\"target\"]\nrespect_gitignore = true\nfollow_symlinks = false\n\n[ui]\npreview = true\naccent = \"violet\" # keep accent note\nicons = \"never\"\nheight_percent = 61\n\n[actions]\neditor = \"code\"\n",
-        existing_root.display()
+        "# owner note\nschema_version = 1\nroots = [{}] # keep root note\nignore = [\"target\"]\nrespect_gitignore = true\nfollow_symlinks = false\n\n[ui]\npreview = true\naccent = \"violet\" # keep accent note\nicons = \"never\"\nheight_percent = 61\n\n[actions]\neditor = \"code\"\n",
+        toml_string(&existing_root)
     );
     fs::write(&paths.config_file, &original).expect("write config");
 
@@ -69,9 +73,9 @@ fn removing_a_root_changes_only_the_roots_array() {
     fs::create_dir_all(&first).expect("first root");
     fs::create_dir_all(&second).expect("second root");
     let original = format!(
-        "# preserved\nschema_version = 1\nroots = [\n  \"{}\",\n  \"{}\",\n]\nignore = [\"Library\"]\nrespect_gitignore = true\nfollow_symlinks = false\n",
-        first.display(),
-        second.display()
+        "# preserved\nschema_version = 1\nroots = [\n  {},\n  {},\n]\nignore = [\"Library\"]\nrespect_gitignore = true\nfollow_symlinks = false\n",
+        toml_string(&first),
+        toml_string(&second)
     );
     fs::write(&paths.config_file, &original).expect("write config");
 
@@ -97,7 +101,7 @@ fn missing_root_is_rejected_without_changing_the_config() {
     let paths = app_paths(&temp);
     let existing = temp.path().join("existing");
     fs::create_dir_all(&existing).expect("existing root");
-    let original = format!("schema_version = 1\nroots = [\"{}\"]\n", existing.display());
+    let original = format!("schema_version = 1\nroots = [{}]\n", toml_string(&existing));
     fs::write(&paths.config_file, &original).expect("write config");
 
     let error = mutate_config(
@@ -125,7 +129,7 @@ fn config_symlink_is_rejected_without_touching_its_target() {
     let second = temp.path().join("second");
     fs::create_dir_all(&first).expect("first root");
     fs::create_dir_all(&second).expect("second root");
-    let original = format!("schema_version = 1\nroots = [\"{}\"]\n", first.display());
+    let original = format!("schema_version = 1\nroots = [{}]\n", toml_string(&first));
     fs::write(&target, &original).expect("target config");
     symlink(&target, &link).expect("config symlink");
 
@@ -187,7 +191,7 @@ fn existing_config_permissions_survive_mutation() {
     fs::create_dir_all(&second).expect("second root");
     fs::write(
         &paths.config_file,
-        format!("schema_version = 1\nroots = [\"{}\"]\n", first.display()),
+        format!("schema_version = 1\nroots = [{}]\n", toml_string(&first)),
     )
     .expect("config");
     fs::set_permissions(&paths.config_file, fs::Permissions::from_mode(0o640)).expect("set mode");
@@ -215,7 +219,7 @@ fn symlink_alias_is_an_idempotent_duplicate() {
     let alias = temp.path().join("alias");
     fs::create_dir_all(&root).expect("root");
     symlink(&root, &alias).expect("alias");
-    let original = format!("schema_version = 1\nroots = [\"{}\"]\n", root.display());
+    let original = format!("schema_version = 1\nroots = [{}]\n", toml_string(&root));
     fs::write(&paths.config_file, &original).expect("config");
 
     let outcome =
@@ -234,7 +238,7 @@ fn final_root_removal_is_rejected_without_changing_the_config() {
     let paths = app_paths(&temp);
     let root = temp.path().join("only");
     fs::create_dir_all(&root).expect("root");
-    let original = format!("schema_version = 1\nroots = [\"{}\"]\n", root.display());
+    let original = format!("schema_version = 1\nroots = [{}]\n", toml_string(&root));
     fs::write(&paths.config_file, &original).expect("config");
 
     let error = mutate_config(&paths.config_file, ConfigMutation::RemoveRoot(root))
@@ -255,7 +259,7 @@ fn file_and_newline_roots_are_rejected_without_changing_the_config() {
     let file = temp.path().join("file");
     fs::create_dir_all(&root).expect("root");
     fs::write(&file, b"not a directory").expect("file");
-    let original = format!("schema_version = 1\nroots = [\"{}\"]\n", root.display());
+    let original = format!("schema_version = 1\nroots = [{}]\n", toml_string(&root));
     fs::write(&paths.config_file, &original).expect("config");
 
     assert!(mutate_config(&paths.config_file, ConfigMutation::AddRoot(file)).is_err());
@@ -283,7 +287,7 @@ fn concurrent_root_mutations_preserve_every_successful_addition() {
     fs::create_dir_all(&initial).expect("initial root");
     fs::write(
         &paths.config_file,
-        format!("schema_version = 1\nroots = [\"{}\"]\n", initial.display()),
+        format!("schema_version = 1\nroots = [{}]\n", toml_string(&initial)),
     )
     .expect("config");
     let roots = (0..WRITERS)
