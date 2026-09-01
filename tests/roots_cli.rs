@@ -274,18 +274,18 @@ fn failed_refresh_keeps_the_saved_root_and_reports_last_good_index_semantics() {
                 .and(predicate::str::contains("last good index remains active")),
         );
 
-    fixture
+    let output = fixture
         .command()
         .args(["roots", "list", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            focused
-                .canonicalize()
-                .expect("focused")
-                .display()
-                .to_string(),
-        ));
+        .output()
+        .expect("roots json");
+    assert!(output.status.success());
+    let rows: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
+    assert!(
+        rows.as_array().expect("JSON array").iter().any(|row| {
+            row["path"].as_str() == focused.canonicalize().expect("focused").to_str()
+        })
+    );
 }
 
 #[test]

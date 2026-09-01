@@ -79,9 +79,12 @@ pub fn expand_path(input: &str) -> Result<PathBuf> {
         return Err(DirgoError::NewlinePath);
     }
     if input == "~" || input.starts_with("~/") {
-        let home = dirs::home_dir().ok_or_else(|| {
-            DirgoError::User("Dirgo could not determine your home directory".into())
-        })?;
+        let home = env_path("HOME")
+            .filter(|path| path.is_absolute())
+            .or_else(dirs::home_dir)
+            .ok_or_else(|| {
+                DirgoError::User("Dirgo could not determine your home directory".into())
+            })?;
         return Ok(if input == "~" {
             home
         } else {
