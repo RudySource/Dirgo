@@ -3,8 +3,11 @@ use std::fs;
 use assert_cmd::Command;
 use dirgo::{
     paths::AppPaths,
-    update::{UpdateStatus, local_status, render_version_status, set_notifications},
+    update::{UpdateStatus, local_status, render_version_status},
 };
+
+#[cfg(unix)]
+use dirgo::update::set_notifications;
 
 fn paths(temp: &tempfile::TempDir) -> AppPaths {
     let cache_dir = temp.path().join("cache/dirgo");
