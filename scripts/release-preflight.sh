@@ -46,8 +46,10 @@ dotnet restore powershell/DirgoPredictor/DirgoPredictor.csproj --locked-mode
 dotnet build powershell/DirgoPredictor/DirgoPredictor.csproj --configuration Release --no-restore
 dotnet list powershell/DirgoPredictor/DirgoPredictor.csproj package --vulnerable --include-transitive
 sh -n install/dirgo-installer.sh
+sh -n scripts/extract-release-notes.sh
 sh -n scripts/render-homebrew-formula.sh
 sh -n scripts/render-scoop-manifest.sh
+scripts/release-metadata-smoke.sh
 zsh -n scripts/demo-chapters.zsh
 DGO_BIN="$build_root/release/dgo" scripts/installer-smoke.sh
 cargo build --release --bin dgo-fixture --features benchmark-tools
@@ -127,6 +129,7 @@ if ! command -v expect >/dev/null 2>&1; then
   exit 1
 fi
 export DGO_BIN="$build_root/release/dgo"
+export DGO_VERSION="$crate_version"
 expect scripts/pty-picker-smoke.exp
 expect scripts/pty-terminal-gates.exp
 expect scripts/pty-shell-matrix.exp

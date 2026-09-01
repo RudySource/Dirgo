@@ -100,7 +100,7 @@ fn interactive_status_copy_is_compact_stylish_and_actionable() {
     let disabled = render_version_status(&UpdateStatus::Disabled, false, false);
 
     assert!(available.contains("●  Update available"));
-    assert!(available.contains("0.7.0  →  0.8.0"));
+    assert!(available.contains(&format!("{}  →  0.8.0", env!("CARGO_PKG_VERSION"))));
     assert!(available.contains("dgo --update"));
     assert!(disabled.contains("*  Update checks are off"));
     assert!(disabled.contains("dgo update-notifications on"));

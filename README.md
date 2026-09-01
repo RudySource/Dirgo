@@ -263,6 +263,12 @@ The installer detects the platform, verifies SHA-256, installs to
 irm https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1 | iex
 ```
 
+From Command Prompt (`cmd.exe`), run the same verified installer with:
+
+```bat
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1' | Invoke-Expression"
+```
+
 The installer verifies SHA-256, installs `dgo.exe` with its predictor, and asks
 before changing the user `PATH`. Open PowerShell 7+ and run `dgo setup`.
 
@@ -273,8 +279,9 @@ scoop bucket add rudysource https://github.com/RudySource/scoop-bucket
 scoop install rudysource/dirgo
 ```
 
-Windows support targets PowerShell 7+ and Windows Terminal. Legacy Windows
-PowerShell 5.1 and `cmd.exe` are not supported.
+Dirgo's shell integration targets PowerShell 7+ and Windows Terminal. The CMD
+command above bootstraps installation only; interactive navigation and native
+suggestions still run in PowerShell 7+.
 
 <p align="center">
   <img src="docs/assets/dirgo-install.gif" width="860" alt="Installing Dirgo, connecting Zsh, and making the first directory jump">
@@ -504,7 +511,7 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.7.0** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, and cached update awareness. |
+| **0.7.1** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 
 ## Support Dirgo

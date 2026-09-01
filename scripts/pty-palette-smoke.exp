@@ -66,7 +66,7 @@ close $update
 unset env(DGO_DISABLE_UPDATE_CHECK)
 spawn -noecho "$env(DGO_BIN)" --version
 expect {
-    -exact "dgo 0.7.0" {}
+    -exact "dgo $env(DGO_VERSION)" {}
     timeout { puts stderr "interactive version omitted the current version"; file delete -force $sandbox; exit 1 }
 }
 expect {

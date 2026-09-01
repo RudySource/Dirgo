@@ -156,7 +156,7 @@ scene 5 'Focused root' 'Open anywhere without indexing everything' 'Add only the
 
 scene 6 'Local cache only' 'Know when an update is ready' 'dgo --version never waits for the network.' All \
   ">|●  Update available" \
-  " |0.7.0  →  0.8.0" \
+  " |0.7.1  →  0.8.0" \
   "+|Run dgo --update" \
   " |dgo update-notifications off" \
   "+|Piped version stays one line"

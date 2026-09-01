@@ -133,11 +133,14 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*
+      - name: Render curated release notes
+        shell: bash
+        run: scripts/extract-release-notes.sh "${GITHUB_REF_NAME#v}" CHANGELOG.md > release-notes.md
       - name: Publish immutable tag assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "Dirgo $GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file release-notes.md --title "Dirgo $GITHUB_REF_NAME"
 
   homebrew:
     name: update Homebrew tap

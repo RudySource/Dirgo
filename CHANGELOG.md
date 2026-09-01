@@ -4,6 +4,17 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-01
+
+### Added
+
+- Add a copy-ready Command Prompt bootstrap command for the existing verified PowerShell installer, while keeping PowerShell 7+ as the supported interactive Windows shell.
+
+### Changed
+
+- Publish each GitHub Release with the curated notes for that exact version from this changelog instead of a bare generated commit comparison.
+- Validate release-note extraction and Windows installation documentation in the release preflight so future releases cannot silently lose their user-facing changelog.
+
 ## [0.7.0] - 2026-09-01
 
 ### Added
