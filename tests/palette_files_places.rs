@@ -2,11 +2,11 @@ use std::{collections::HashMap, fs, path::PathBuf, time::Duration};
 
 use dirgo::{
     model::{Bookmark, DirectoryRecord, ProjectKind},
-    palette::{
-        PaletteAction, PaletteSource, ProviderBudget,
-        providers::{files, places},
-    },
+    palette::{PaletteAction, PaletteSource, ProviderBudget, providers::places},
 };
+
+#[cfg(unix)]
+use dirgo::palette::providers::files;
 
 #[cfg(unix)]
 #[test]
