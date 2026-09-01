@@ -659,9 +659,17 @@ pub fn read_command_history(
     if !config.command_history || !path.exists() {
         return Ok(Vec::new());
     }
-    let db = match ReadOnlyDatabase::open(path) {
+    let db = match open_read_only_database_with_retry(path) {
         Ok(db) => db,
         Err(redb::DatabaseError::DatabaseAlreadyOpen) => return Ok(Vec::new()),
+        Err(redb::DatabaseError::Storage(redb::StorageError::Io(error)))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::InvalidData | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            return Ok(Vec::new());
+        }
         Err(error) => return Err(error.into()),
     };
     let read = db.begin_read()?;
@@ -875,6 +883,26 @@ fn open_database_with_retry(path: &Path) -> Result<Database> {
         }
     }
     unreachable!("bounded database retry always returns")
+}
+
+fn open_read_only_database_with_retry(
+    path: &Path,
+) -> std::result::Result<ReadOnlyDatabase, redb::DatabaseError> {
+    for attempt in 0..6 {
+        match ReadOnlyDatabase::open(path) {
+            Ok(db) => return Ok(db),
+            Err(redb::DatabaseError::DatabaseAlreadyOpen) if attempt < 5 => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(redb::DatabaseError::Storage(redb::StorageError::Io(error)))
+                if error.kind() == std::io::ErrorKind::InvalidData && attempt < 5 =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("bounded read-only database retry always returns")
 }
 
 fn preserve_recovery_copy(path: &Path) -> Result<PathBuf> {

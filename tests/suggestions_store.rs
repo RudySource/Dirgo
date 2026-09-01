@@ -72,6 +72,40 @@ fn command_history_is_opt_in_filtered_bounded_and_clearable() {
 }
 
 #[test]
+fn command_history_reader_retries_while_the_first_database_is_being_created() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("state/suggestions.redb");
+    fs::create_dir_all(path.parent().expect("state directory")).expect("create state directory");
+    fs::write(&path, []).expect("create in-progress database file");
+    let config = SuggestionsConfig {
+        command_history: true,
+        ..SuggestionsConfig::default()
+    };
+
+    let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let writer_path = path.clone();
+    let writer_config = config.clone();
+    let writer_start = start.clone();
+    let writer = std::thread::spawn(move || {
+        writer_start.wait();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::remove_file(&writer_path).expect("replace in-progress database file");
+        let store = CommandHistoryStore::open(&writer_path).expect("open completed store");
+        store
+            .record("cargo test", 100, &writer_config)
+            .expect("record command");
+    });
+
+    start.wait();
+    let entries = read_command_history(&path, 100, &config);
+    writer.join().expect("writer thread");
+    entries.expect("reader should survive concurrent first-time creation");
+    let completed = read_command_history(&path, 100, &config).expect("read completed database");
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].command, "cargo test");
+}
+
+#[test]
 fn schema_v2_records_full_context_and_rebuilds_aggregates_after_pruning() {
     let temp = tempfile::tempdir().expect("tempdir");
     let path = temp.path().join("suggestions.redb");
