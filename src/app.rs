@@ -2458,21 +2458,44 @@ fn doctor(paths: &AppPaths, config: Result<Config>) -> Result<i32> {
     if accessible_roots != root_statuses.len() {
         println!("  Run `dgo roots list` for exact repair guidance.");
     }
-    let (update_marker, update_detail) = match crate::update::local_status(paths) {
-        crate::update::UpdateStatus::UpToDate => ("✓", "current".to_owned()),
-        crate::update::UpdateStatus::Available { latest } => {
-            ("!", format!("{latest} available; run `dgo --update`"))
-        }
-        crate::update::UpdateStatus::Unknown => (
-            "!",
-            "unknown; the next normal command will refresh it".into(),
-        ),
-        crate::update::UpdateStatus::Disabled => (
+    let update_view = crate::update::local_view(paths);
+    let (update_marker, update_detail) = if matches!(
+        update_view.refresh,
+        crate::update::RefreshDisposition::Disabled
+    ) {
+        (
             "✓",
             "checks disabled; enable with `dgo update-notifications on`".into(),
-        ),
-        crate::update::UpdateStatus::Stale { .. } => {
-            ("!", "stale; the next normal command will refresh it".into())
+        )
+    } else {
+        match update_view.relation {
+            crate::update::VersionRelation::UpdateAvailable { latest } => (
+                "!",
+                format!(
+                    "{latest} available ({}); run `dgo --update`",
+                    if update_view.freshness == crate::update::CacheFreshness::Fresh {
+                        "confirmed"
+                    } else {
+                        "cached"
+                    }
+                ),
+            ),
+            crate::update::VersionRelation::Current { latest }
+                if update_view.freshness == crate::update::CacheFreshness::Fresh =>
+            {
+                ("✓", format!("current ({latest} confirmed)"))
+            }
+            crate::update::VersionRelation::Current { latest } => (
+                "!",
+                format!("cached stable {latest}; the next normal command will refresh it"),
+            ),
+            crate::update::VersionRelation::AheadOfLatest { latest } => {
+                ("✓", format!("ahead of latest known stable {latest}"))
+            }
+            crate::update::VersionRelation::Unknown => (
+                "!",
+                "unknown; the next normal command will refresh it".into(),
+            ),
         }
     };
     println!("{update_marker} update         {update_detail}");

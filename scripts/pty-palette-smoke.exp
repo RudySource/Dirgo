@@ -61,7 +61,7 @@ if {[lindex [wait] 3] != 0} {
 
 set update_cache "$sandbox/cache/dirgo/update.json"
 set update [open $update_cache w]
-puts $update {{"checked_at":18446744073709551615,"latest_version":"9.9.9"}}
+puts $update "{\"checked_at\":[clock seconds],\"latest_version\":\"9.9.9\"}"
 close $update
 unset env(DGO_DISABLE_UPDATE_CHECK)
 spawn -noecho "$env(DGO_BIN)" --version
@@ -70,7 +70,7 @@ expect {
     timeout { puts stderr "interactive version omitted the current version"; file delete -force $sandbox; exit 1 }
 }
 expect {
-    -exact "Update available" {}
+    -exact "Update 9.9.9 available" {}
     timeout { puts stderr "interactive version omitted cached update status"; file delete -force $sandbox; exit 1 }
 }
 expect eof

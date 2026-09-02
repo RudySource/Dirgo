@@ -4,6 +4,23 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-02
+
+### Changed
+
+- Make interactive `dgo --version` render cached state immediately, then start or observe one detached refresh when the last successful check is stale or missing. Redirected version output remains exactly one line and performs no update-state work.
+- Treat successful release knowledge, cache freshness, and refresh scheduling as separate states so `dgo --version`, navigation notices, and `dgo doctor` report the same facts.
+
+### Fixed
+
+- Keep a known newer stable release visible even when its cached result is stale instead of replacing it with a generic stale label.
+- Retry failed fetches after a 15-minute bounded backoff and failed process starts after at most 60 seconds instead of suppressing checks for 24 hours.
+- Use a five-minute exclusive attempt lease so concurrent shells start at most one update checker and clock rollback or malformed state cannot create an unlimited delay.
+
+### Security
+
+- Keep update cache and attempt state bounded, private, atomic where published, and resistant to symlink or non-file state paths; malformed notification markers no longer silently disable checking.
+
 ## [0.7.1] - 2026-09-01
 
 ### Added

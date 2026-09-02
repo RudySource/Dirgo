@@ -226,7 +226,9 @@ dgo library/adobe/cep/extensions
 ```
 
 `dgo --version` keeps its stable one-line output in pipes. In an interactive
-terminal it also shows the cached update state without waiting for the network.
+terminal it shows the cached update state immediately and, when due, starts or
+observes one detached refresh without waiting for the network. A stale cached
+newer release remains visible while Dirgo checks again.
 Disable or restore update notices with `dgo update-notifications off|on`.
 
 ### Stay local and in control
@@ -494,7 +496,7 @@ against your own index.
 
 - No telemetry, analytics, account, or cloud sync.
 - Search, ranking, Palette filtering, and `dgo --version` never wait for the network.
-- A detached release check runs at most daily unless update notifications are disabled.
+- A successful release response stays fresh for 24 hours; failed checks use short bounded retry delays, and update notifications can be disabled completely.
 - Suggestions and command-history collection are independently disabled by default.
 - Context history stays local, project-scoped, bounded, and inspectable; likely secrets are never stored.
 - History exports omit filesystem paths by default and never overwrite without `--force`.
@@ -511,6 +513,7 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
+| **0.7.2** | Release candidate | Reliable cached update status, truthful detached refresh scheduling, short failure retries, and one exclusive checker across concurrent shells. |
 | **0.7.1** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 

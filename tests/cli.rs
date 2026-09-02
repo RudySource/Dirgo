@@ -56,10 +56,15 @@ fn update_notifications_are_visible_and_can_be_disabled_persistently() {
     fs::create_dir_all(&cache_dir).expect("update cache dir");
     fs::write(
         cache_dir.join("update.json"),
-        r#"{"checked_at":1,"latest_version":"9.9.9"}"#,
+        format!(
+            r#"{{"checked_at":{},"latest_version":"9.9.9"}}"#,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_secs()
+        ),
     )
     .expect("update cache");
-    fs::write(cache_dir.join("update-check"), u64::MAX.to_string()).expect("fresh update check");
 
     fixture
         .command()
