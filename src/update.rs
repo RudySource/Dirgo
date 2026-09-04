@@ -473,7 +473,7 @@ fn schedule_refresh_at(
         return RefreshDisposition::StartFailed;
     };
     if let Err(error) = state_file.try_lock_exclusive() {
-        return if error.kind() == io::ErrorKind::WouldBlock {
+        return if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() {
             RefreshDisposition::AlreadyRunning
         } else {
             tracing::debug!(%error, "could not lock update-check state");
