@@ -11,6 +11,7 @@ use super::{
     providers::{
         CommandHistoryEntry, command_suggestions, directory_query, directory_suggestions,
         executable_suggestions, history_suggestions, project_command_suggestions,
+        workflow_suggestions,
     },
     sanitize_suggestion,
     top_k::compare_best,
@@ -30,6 +31,7 @@ pub struct SuggestionData {
     pub ranking: RankingConfig,
     pub catalog: CommandCatalog,
     pub command_history: Vec<CommandHistoryEntry>,
+    pub workflow: Option<super::providers::WorkflowSnapshot>,
 }
 
 pub struct SuggestionEngine {
@@ -140,6 +142,11 @@ impl SuggestionEngine {
         candidates.extend(command_suggestions(request, &context, &self.data.catalog));
         candidates.extend(history_suggestions(request, &self.data.command_history));
         candidates.extend(project_command_suggestions(request, project));
+        candidates.extend(workflow_suggestions(
+            request,
+            self.data.workflow.as_ref(),
+            project,
+        ));
         candidates.extend(executable_suggestions(request, &self.data.catalog));
         candidates.extend(super::providers::filesystem_suggestions(request));
         candidates

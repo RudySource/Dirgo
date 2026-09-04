@@ -132,6 +132,7 @@ pub enum SuggestionSource {
     Alias,
     Filesystem,
     ProjectCommand,
+    Workflow,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

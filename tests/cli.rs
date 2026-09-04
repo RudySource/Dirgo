@@ -56,10 +56,15 @@ fn update_notifications_are_visible_and_can_be_disabled_persistently() {
     fs::create_dir_all(&cache_dir).expect("update cache dir");
     fs::write(
         cache_dir.join("update.json"),
-        r#"{"checked_at":1,"latest_version":"9.9.9"}"#,
+        format!(
+            r#"{{"checked_at":{},"latest_version":"9.9.9"}}"#,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_secs()
+        ),
     )
     .expect("update cache");
-    fs::write(cache_dir.join("update-check"), u64::MAX.to_string()).expect("fresh update check");
 
     fixture
         .command()
@@ -151,9 +156,27 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications")
-                .and(predicate::str::contains("_dgo_bookmarks")),
+            predicate::str::contains("setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions workflows update-notifications")
+                .and(predicate::str::contains("_dgo_bookmarks"))
+                .and(predicate::str::contains("clear-learned")),
         );
+}
+
+#[test]
+fn every_generated_completion_exposes_workflow_management() {
+    let fixture = Fixture::new();
+    for shell in ["zsh", "bash", "fish", "powershell"] {
+        fixture
+            .command()
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains("workflows")
+                    .and(predicate::str::contains("clear-learned"))
+                    .and(predicate::str::contains("export")),
+            );
+    }
 }
 
 #[test]

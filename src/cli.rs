@@ -261,6 +261,11 @@ pub enum Command {
         #[command(subcommand)]
         command: SuggestionsCommand,
     },
+    /// Inspect and manage local workflow suggestions
+    Workflows {
+        #[command(subcommand)]
+        command: WorkflowsCommand,
+    },
     #[command(name = "__check-update", hide = true)]
     CheckUpdate,
     #[command(name = "__suggest", hide = true)]
@@ -449,6 +454,75 @@ pub enum SuggestionsHistoryCommand {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WorkflowsCommand {
+    /// Enable workflow inference when command history is already enabled
+    Enable,
+    /// Disable workflow ranking without deleting stored data
+    Disable,
+    /// Show workflow settings and bounded storage counts
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Suggest the next command without executing it
+    Next {
+        #[command(flatten)]
+        scope: WorkflowReadScopeArgs,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List saved and learned workflows
+    List {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one saved workflow
+    Show {
+        id: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Save the last eligible commands from this shell session
+    Save {
+        name: String,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(2..=8))]
+        last: u8,
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Rename one saved workflow
+    Rename { id: u64, name: String },
+    /// Remove one saved workflow without executing it
+    Remove { id: u64 },
+    /// Remove learned transitions but preserve history and saved workflows
+    ClearLearned {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+    },
+    /// Export versioned JSON Lines without paths by default
+    Export {
+        #[command(flatten)]
+        scope: HistoryScopeArgs,
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+        #[arg(long)]
+        include_paths: bool,
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Debug, Args, Default)]
+pub struct WorkflowReadScopeArgs {
+    #[arg(long, value_name = "PATH", conflicts_with = "global")]
+    pub project: Option<PathBuf>,
+    #[arg(long, conflicts_with = "project")]
+    pub global: bool,
 }
 
 #[derive(Debug, Args, Default)]

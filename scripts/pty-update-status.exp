@@ -1,0 +1,133 @@
+#!/usr/bin/expect -f
+
+set timeout 8
+encoding system utf-8
+if {[info exists env(DGO_PTY_DEBUG)]} {
+    log_user 1
+} else {
+    log_user 0
+}
+
+if {![info exists env(DGO_BIN)] || ![info exists env(DGO_VERSION)]} {
+    puts stderr "DGO_BIN and DGO_VERSION are required"
+    exit 2
+}
+
+set sandbox [file normalize "/tmp/dirgo-update-status-[pid]-[clock seconds]"]
+file mkdir "$sandbox/fake-bin"
+file mkdir "$sandbox/cache/dirgo"
+file mkdir "$sandbox/config"
+file mkdir "$sandbox/state"
+
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(DGO_UPDATE_TEST_COUNT) "$sandbox/fetch-count"
+set env(DGO_UPDATE_TEST_PROBE) "$sandbox/probe"
+set env(NO_COLOR) 1
+set env(TERM) xterm-256color
+set env(LANG) C.UTF-8
+set env(LC_ALL) C.UTF-8
+set env(PATH) "$sandbox/fake-bin:$env(PATH)"
+
+set curl [open "$sandbox/fake-bin/curl" w]
+puts $curl {#!/bin/sh}
+puts $curl {printf 'fetch\n' >> "$DGO_UPDATE_TEST_COUNT"}
+puts $curl {sleep 4}
+puts $curl {printf '%s\n' '{"tag_name":"v9.9.9"}'}
+close $curl
+file attributes "$sandbox/fake-bin/curl" -permissions 0755
+
+set cache [open "$sandbox/cache/dirgo/update.json" w]
+puts $cache {{"checked_at":1,"latest_version":"9.9.9"}}
+close $cache
+
+spawn -noecho /bin/zsh -f
+send -- {stty rows 12 columns 72; function _dgo_update_probe() { print -r -- "$BUFFER" >| "$DGO_UPDATE_TEST_PROBE"; }; zle -N _dgo_update_probe; bindkey '^T' _dgo_update_probe; PS1='UPDATE> '; print -r -- UPDATE:ready}
+send -- "\r"
+expect -exact "UPDATE:ready"
+expect -exact "UPDATE> "
+
+set timeout 2
+send -- "\"$env(DGO_BIN)\" --version\r"
+expect {
+    -exact "dgo $env(DGO_VERSION)" {}
+    timeout { puts stderr "interactive version blocked before rendering"; file delete -force $sandbox; exit 1 }
+}
+expect -exact "Update 9.9.9 available"
+expect -exact "Cached result · checking again"
+expect {
+    -exact "UPDATE> " {}
+    timeout { puts stderr "interactive version waited for the background fetch"; file delete -force $sandbox; exit 1 }
+}
+
+# A second shell command observes the same lease and must not start another child.
+send -- "\"$env(DGO_BIN)\" --version\r"
+expect -exact "dgo $env(DGO_VERSION)"
+expect -exact "Cached result · checking again"
+expect {
+    -exact "UPDATE> " {}
+    timeout { puts stderr "second interactive version blocked"; file delete -force $sandbox; exit 1 }
+}
+
+# Running the status command must not damage the next editable buffer.
+send -- "literal > buffer"
+send -- "\024"
+after 100
+if {![file exists $env(DGO_UPDATE_TEST_PROBE)]} {
+    puts stderr "version command did not restore the editable prompt"
+    file delete -force $sandbox
+    exit 1
+}
+set probe [open $env(DGO_UPDATE_TEST_PROBE) r]
+set buffer [string trimright [read $probe] "\n"]
+close $probe
+if {$buffer ne "literal > buffer"} {
+    puts stderr "version command changed the next buffer: <$buffer>"
+    file delete -force $sandbox
+    exit 1
+}
+send -- "\025exit\r"
+expect eof
+if {[lindex [wait] 3] != 0} {
+    puts stderr "interactive fixture shell failed"
+    file delete -force $sandbox
+    exit 1
+}
+
+set timeout 5
+set deadline [expr {[clock milliseconds] + 6500}]
+while {![file exists $env(DGO_UPDATE_TEST_COUNT)] && [clock milliseconds] < $deadline} {
+    after 50
+}
+after 4200
+if {![file exists $env(DGO_UPDATE_TEST_COUNT)]} {
+    puts stderr "interactive version did not start a background fetch"
+    file delete -force $sandbox
+    exit 1
+}
+set count_file [open $env(DGO_UPDATE_TEST_COUNT) r]
+set count_lines [split [string trim [read $count_file]] "\n"]
+close $count_file
+if {[llength $count_lines] != 1} {
+    puts stderr "concurrent version calls started [llength $count_lines] fetches"
+    file delete -force $sandbox
+    exit 1
+}
+
+# Narrow ASCII and TERM=dumb still carry the same textual meaning.
+set env(DGO_NO_UNICODE) 1
+set env(TERM) dumb
+spawn -noecho /bin/sh -c {stty rows 6 columns 40; exec "$DGO_BIN" --version}
+expect -exact "dgo $env(DGO_VERSION)"
+expect -exact "*  Update 9.9.9 available"
+expect eof
+if {[lindex [wait] 3] != 0} {
+    puts stderr "narrow ASCII update status failed"
+    file delete -force $sandbox
+    exit 1
+}
+
+puts "UPDATE-PTY:status-and-scheduling:ok"
+file delete -force $sandbox
+exit 0

@@ -55,6 +55,7 @@ DGO_BIN="$build_root/release/dgo" scripts/installer-smoke.sh
 cargo build --release --bin dgo-fixture --features benchmark-tools
 cargo bench --bench index_pipeline --no-run
 cargo bench --bench suggestions --no-run
+cargo bench --bench workflows --no-run
 cargo package --allow-dirty --no-verify --offline
 git diff --check
 
@@ -75,15 +76,20 @@ cargo package --allow-dirty --no-verify --offline --list > "$package_files"
 for required_file in \
   Cargo.toml CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md SECURITY.md SUPPORT.md \
   CONTRIBUTING.md docs/dirgo-demo.tape docs/assets/dirgo-demo.gif \
+  docs/architecture/update-state.md docs/architecture/workflows.md \
+  docs/adr/0005-local-bounded-workflow-inference.md \
   docs/dirgo-project-commands.tape docs/assets/dirgo-project-commands.gif \
   docs/assets/dirgo-context-engine.gif \
   docs/assets/dirgo-workspace-palette.gif \
+  docs/assets/dirgo-workflows.gif \
   docs/assets/dirgo-wordmark.png \
   install/dirgo-installer.sh install/dirgo-installer.ps1 \
   packaging/homebrew/dirgo.rb.template packaging/scoop/dirgo.json.template \
   scripts/demo-chapters.zsh scripts/demo-setup.sh scripts/render-homebrew-formula.sh \
-  scripts/render-scoop-manifest.sh scripts/render-context-engine-demo.sh scripts/render-workspace-palette-demo.sh scripts/repository-hygiene.sh \
+  scripts/render-scoop-manifest.sh scripts/render-context-engine-demo.sh scripts/render-workspace-palette-demo.sh \
+  scripts/render-workflows-demo.sh scripts/render-workflow-frame.swift scripts/repository-hygiene.sh \
   scripts/pty-suggestions-smoke.exp scripts/pty-zsh-live-completion.exp scripts/pty-palette-smoke.exp \
+  scripts/pty-update-status.exp \
   scripts/windows-suggestions-smoke.ps1 \
   powershell/DirgoPredictor/DirgoPredictor.cs \
   powershell/DirgoPredictor/DirgoPredictor.csproj \
@@ -136,6 +142,7 @@ expect scripts/pty-shell-matrix.exp
 DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
 expect scripts/pty-zsh-live-completion.exp
 expect scripts/pty-palette-smoke.exp
+expect scripts/pty-update-status.exp
 DGO_FIXTURE_BIN="$build_root/release/dgo-fixture" \
   scripts/benchmark-cli.sh --directories 100 --samples 1
 

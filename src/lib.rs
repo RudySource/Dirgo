@@ -19,5 +19,6 @@ pub mod suggestions;
 pub mod terminal;
 pub mod tui;
 pub mod update;
+pub mod workflows;
 
 pub use error::{DirgoError, Result};

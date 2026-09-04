@@ -145,6 +145,7 @@ fn parse_branches(output: &[u8]) -> Vec<PaletteItem> {
                 .into(),
                 insert_text: None,
                 preview_key: Some(format!("git:branch:{name}")),
+                workflow_preview: None,
                 action: PaletteAction::InsertCommand {
                     program: "git".into(),
                     args: vec!["switch".into(), "--".into(), name.into()],
@@ -202,6 +203,7 @@ fn push_worktree(items: &mut Vec<PaletteItem>, path: Option<PathBuf>, branch: Op
         subtitle,
         insert_text: None,
         preview_key: Some(format!("git:worktree:{}", path.display())),
+        workflow_preview: None,
         action: PaletteAction::Navigate { path },
         score: 27_000,
     });

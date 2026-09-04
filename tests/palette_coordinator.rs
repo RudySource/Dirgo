@@ -13,6 +13,7 @@ fn item(source: PaletteSource, id: &str) -> PaletteItem {
         subtitle: format!("{id} detail"),
         insert_text: Some(format!("insert-{id}")),
         preview_key: Some(format!("preview-{id}")),
+        workflow_preview: None,
         action: PaletteAction::Insert {
             text: format!("insert-{id}"),
         },

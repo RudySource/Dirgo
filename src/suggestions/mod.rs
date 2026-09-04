@@ -28,7 +28,7 @@ pub use protocol::{
     MAX_REQUEST_BYTES, ProtocolError, decode_history_record_frame, decode_request_line,
     encode_response_line, read_bounded_frame,
 };
-pub use providers::CommandHistoryEntry;
+pub use providers::{CommandHistoryEntry, WorkflowSnapshot};
 pub use result::{SuggestionPickerResultFrame, SuggestionPickerResultKind};
 pub use sanitize::sanitize_suggestion;
 pub use settings::write_suggestions_config;

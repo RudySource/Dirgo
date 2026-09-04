@@ -48,6 +48,7 @@ pub struct ActionConfig {
 pub struct SuggestionsConfig {
     pub enabled: bool,
     pub command_history: bool,
+    pub workflow_suggestions: bool,
     pub live_panel: bool,
     pub native_completions: bool,
     pub debounce_ms: u64,
@@ -110,6 +111,7 @@ impl Default for SuggestionsConfig {
         Self {
             enabled: false,
             command_history: false,
+            workflow_suggestions: false,
             live_panel: true,
             native_completions: true,
             debounce_ms: 30,
@@ -261,6 +263,7 @@ mod tests {
         let config = Config::default();
         assert!(!config.suggestions.enabled);
         assert!(!config.suggestions.command_history);
+        assert!(!config.suggestions.workflow_suggestions);
         assert_eq!(config.suggestions.max_results, 8);
         assert!(config.suggestions.live_panel);
         assert!(config.suggestions.native_completions);
@@ -270,6 +273,7 @@ mod tests {
         let parsed: Config = toml::from_str("schema_version = 1\nroots = ['/tmp']\n")
             .expect("legacy config remains readable");
         assert!(!parsed.suggestions.enabled);
+        assert!(!parsed.suggestions.workflow_suggestions);
         parsed.validate().expect("legacy defaults are valid");
     }
 

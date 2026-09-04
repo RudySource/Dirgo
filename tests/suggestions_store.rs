@@ -306,7 +306,10 @@ fn future_history_schema_is_rejected_without_overwriting_the_database() {
         .err()
         .expect("future schema must fail")
         .to_string();
-    assert!(error.contains("history schema version 3 is unsupported"));
+    assert!(error.contains(&format!(
+        "history schema version {} is unsupported",
+        HISTORY_SCHEMA_VERSION + 1
+    )));
     assert_eq!(std::fs::read(&path).expect("unchanged bytes"), before);
     assert_eq!(
         std::fs::read_dir(temp.path())

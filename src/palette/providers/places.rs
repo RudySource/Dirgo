@@ -42,6 +42,7 @@ pub fn places(
             subtitle: details.join(" · "),
             insert_text: None,
             preview_key: Some(format!("place:{}", bookmark.path.display())),
+            workflow_preview: None,
             action: PaletteAction::Navigate {
                 path: bookmark.path.clone(),
             },
@@ -71,6 +72,7 @@ pub fn places(
                 .into(),
             insert_text: None,
             preview_key: Some(format!("place:{}", project.path.display())),
+            workflow_preview: None,
             action: PaletteAction::Navigate {
                 path: project.path.clone(),
             },

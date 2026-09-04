@@ -1,7 +1,10 @@
 use std::{
     fs,
     io::{self, IsTerminal},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        Arc, Condvar, Mutex,
+        mpsc::{self, Receiver},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -372,6 +375,7 @@ fn title_case(source: PaletteSource) -> &'static str {
         PaletteSource::All => "All",
         PaletteSource::Files => "Files",
         PaletteSource::Tasks => "Tasks",
+        PaletteSource::Workflows => "Workflows",
         PaletteSource::Git => "Git",
         PaletteSource::Compose => "Compose",
         PaletteSource::Places => "Places",
@@ -409,26 +413,63 @@ fn next_boundary(value: &str, index: usize) -> Option<usize> {
 }
 
 struct PreviewLoader {
-    sender: Sender<PreviewResponse>,
+    shared: Arc<(Mutex<PreviewWorkerState>, Condvar)>,
     receiver: Receiver<PreviewResponse>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Default)]
+struct PreviewWorkerState {
+    pending: Option<PreviewRequest>,
+    stopped: bool,
 }
 
 impl PreviewLoader {
     fn new() -> Self {
+        let shared = Arc::new((Mutex::new(PreviewWorkerState::default()), Condvar::new()));
+        let worker_shared = Arc::clone(&shared);
         let (sender, receiver) = mpsc::channel();
-        Self { sender, receiver }
+        let worker = thread::spawn(move || {
+            loop {
+                let request = {
+                    let (lock, ready) = &*worker_shared;
+                    let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    while state.pending.is_none() && !state.stopped {
+                        state = ready
+                            .wait(state)
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    }
+                    if state.stopped {
+                        break;
+                    }
+                    state.pending.take()
+                };
+                let Some(request) = request else { continue };
+                let lines = preview_lines(&request.item);
+                if sender
+                    .send(PreviewResponse {
+                        generation: request.generation,
+                        key: request.key,
+                        lines,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Self {
+            shared,
+            receiver,
+            worker: Some(worker),
+        }
     }
 
     fn request(&self, request: PreviewRequest) {
-        let sender = self.sender.clone();
-        thread::spawn(move || {
-            let lines = preview_lines(&request.item);
-            let _ = sender.send(PreviewResponse {
-                generation: request.generation,
-                key: request.key,
-                lines,
-            });
-        });
+        let (lock, ready) = &*self.shared;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.pending = Some(request);
+        ready.notify_one();
     }
 
     fn try_recv(&self) -> Option<PreviewResponse> {
@@ -436,8 +477,36 @@ impl PreviewLoader {
     }
 }
 
+impl Drop for PreviewLoader {
+    fn drop(&mut self) {
+        let (lock, ready) = &*self.shared;
+        {
+            let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.stopped = true;
+            state.pending = None;
+            ready.notify_one();
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
 fn preview_lines(item: &super::PaletteItem) -> Vec<String> {
     let mut lines = vec![item.subtitle.clone(), item.title.clone()];
+    if let Some(preview) = &item.workflow_preview {
+        lines.push("Complete sequence".into());
+        lines.extend(preview.steps.iter().enumerate().map(|(index, step)| {
+            if index == preview.next_index {
+                format!("> {}. {step}  NEXT", index + 1)
+            } else {
+                format!("  {}. {step}", index + 1)
+            }
+        }));
+        lines.push("Inserted, never executed".into());
+        lines.truncate(24);
+        return lines;
+    }
     match &item.action {
         PaletteAction::Navigate { path }
         | PaletteAction::Open { path }
@@ -523,6 +592,7 @@ mod tests {
             subtitle: format!("{title} detail"),
             insert_text: Some(title.into()),
             preview_key: Some(format!("preview:{title}")),
+            workflow_preview: None,
             action: PaletteAction::Insert { text: title.into() },
             score: 100,
         }
@@ -586,7 +656,10 @@ mod tests {
 
         let output = rendered(112, 18, &mut session, PaletteViewOptions::default());
 
-        assert!(output.contains("DIRGO 0.7"));
+        let (major_minor, _) = env!("CARGO_PKG_VERSION")
+            .rsplit_once('.')
+            .expect("Cargo package version has a patch component");
+        assert!(output.contains(&format!("DIRGO {major_minor}")));
         assert!(output.contains("All"));
         assert!(output.contains("Files"));
         assert!(output.contains("Tasks"));

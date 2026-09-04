@@ -226,8 +226,49 @@ dgo library/adobe/cep/extensions
 ```
 
 `dgo --version` keeps its stable one-line output in pipes. In an interactive
-terminal it also shows the cached update state without waiting for the network.
+terminal it shows the cached update state immediately and, when due, starts or
+observes one detached refresh without waiting for the network. A stale cached
+newer release remains visible while Dirgo checks again.
 Disable or restore update notices with `dgo update-notifications off|on`.
+
+#### New in 0.8 · Workflow Intelligence
+
+Dirgo can suggest the command that usually follows the one you just completed,
+using bounded local evidence from the same project and shell session. Learning
+is a separate opt-in on top of command history, and every `NEXT` result is
+inserted as visible text—never queued, retried, submitted, or executed.
+
+```bash
+dgo suggestions history enable
+dgo workflows enable
+dgo workflows status
+dgo workflows next
+dgo workflows save "Quality gate" --last 3
+dgo workflows list --project .
+dgo workflows export --project . --output ./dirgo-workflows.jsonl
+```
+
+<p align="center">
+  <img src="docs/assets/dirgo-workflows.gif" width="860" alt="Dirgo 0.8 Workflow Intelligence learning separate project sequences, showing NEXT suggestions, previewing a saved workflow, inserting one command without executing it, and exporting path-redacted JSONL">
+</p>
+
+- Learned suggestions require at least three observations across two shell
+  sessions; exact project evidence outranks a bounded global fallback.
+- Saved workflows contain 2–8 reviewed steps. Palette previews the full sequence
+  but inserts only the highlighted next step.
+- `disable` preserves data, `clear-learned` preserves history and saved workflows,
+  and `remove` affects only the selected saved workflow.
+- Names, commands, retained transitions, evidence sessions, and query results are
+  bounded. Likely secrets, configured deny-patterns, controls, and bidi overrides
+  are rejected before learning or saving.
+- Exports use private permissions and atomic publication, redact project paths by
+  default, refuse symlink destinations, and never overwrite without `--force`.
+
+Schema v3 retains schema-v2 events and aggregates and adds rebuildable learned
+transitions plus saved workflows. Before downgrading to Dirgo 0.7, export any
+workflow data you need and clear the schema-v3 history; 0.7 cannot read it. See
+[Workflow Intelligence architecture](docs/architecture/workflows.md) for limits,
+failure isolation, recovery, and the insertion-only contract.
 
 ### Stay local and in control
 
@@ -381,6 +422,16 @@ dgo suggestions history list   list current-project command aggregates
 dgo suggestions history inspect EVENT_ID inspect one completed command
 dgo suggestions history clear  erase all history, or select a scope
 dgo suggestions history export export versioned, path-redacted JSONL
+dgo workflows enable            enable local workflow inference
+dgo workflows status            show schema and learned/saved counts
+dgo workflows next              inspect the current next actions
+dgo workflows list              list workflows in a scope
+dgo workflows show ID           inspect one saved workflow
+dgo workflows save NAME --last N preview and save 2–8 recent steps
+dgo workflows rename ID NAME    rename one saved workflow
+dgo workflows remove ID         remove one saved workflow
+dgo workflows clear-learned     clear derived transitions only
+dgo workflows export            export private path-redacted JSONL
 dgo --update                   install the latest stable release
 dgo update-notifications off   disable new-version notices
 dgo update-notifications on    enable new-version notices
@@ -423,6 +474,7 @@ editor = "auto"
 [suggestions]
 enabled = false
 command_history = false
+workflow_suggestions = false
 live_panel = true
 native_completions = true
 debounce_ms = 30
@@ -494,10 +546,12 @@ against your own index.
 
 - No telemetry, analytics, account, or cloud sync.
 - Search, ranking, Palette filtering, and `dgo --version` never wait for the network.
-- A detached release check runs at most daily unless update notifications are disabled.
+- A successful release response stays fresh for 24 hours; failed checks use short bounded retry delays, and update notifications can be disabled completely.
 - Suggestions and command-history collection are independently disabled by default.
 - Context history stays local, project-scoped, bounded, and inspectable; likely secrets are never stored.
 - History exports omit filesystem paths by default and never overwrite without `--force`.
+- Workflow inference is a separate opt-in; suggestions and Palette selections
+  insert one visible command and never submit it.
 - Paths cross the shell boundary as data, not executable shell text.
 - Human-facing output escapes terminal controls and bidirectional overrides.
 - Index publication is atomic; recovery preserves corrupted and unknown data.
@@ -511,6 +565,8 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
+| **0.8.0** | Development candidate | Local bounded Workflow Intelligence, `NEXT` suggestions, saved 2–8 step workflows, Palette preview, management CLI, and private redacted export. |
+| **0.7.2** | Release candidate | Reliable cached update status, truthful detached refresh scheduling, short failure retries, and one exclusive checker across concurrent shells. |
 | **0.7.1** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 
@@ -557,6 +613,8 @@ or [contribute](CONTRIBUTING.md).
 | Configuration is invalid | Run `dgo config path`, repair the file, then run `dgo doctor`. |
 | A query is ambiguous in a pipe or CI | Use `dgo query <query> --json` and handle exit codes `3` and `4`. |
 | The picker is unreadable | Try `NO_COLOR=1`, `--no-unicode`, or `TERM=dumb`. |
+| `dgo workflows enable` asks for history | Run `dgo suggestions history enable`, then enable workflows separately. |
+| Workflow storage is unhealthy | Preserve `suggestions.redb`, run `dgo doctor`, and export readable data before clearing or downgrading. |
 
 For environment-safe support information, run `dgo support` or read [SUPPORT.md](SUPPORT.md).
 

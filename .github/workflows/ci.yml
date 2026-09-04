@@ -98,11 +98,13 @@ jobs:
         env:
           DGO_BIN: ${{ github.workspace }}/target/release/dgo
         run: |
+          export DGO_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           expect scripts/pty-picker-smoke.exp
           expect scripts/pty-terminal-gates.exp
           expect scripts/pty-shell-matrix.exp
           DGO_BASH_MAJOR="${BASH_VERSINFO[0]}" expect scripts/pty-suggestions-smoke.exp
           expect scripts/pty-zsh-live-completion.exp
+          expect scripts/pty-update-status.exp
 
   dependency-policy:
     name: dependency policy
