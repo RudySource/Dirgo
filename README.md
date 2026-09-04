@@ -565,9 +565,8 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.8.0** | Development candidate | Local bounded Workflow Intelligence, `NEXT` suggestions, saved 2–8 step workflows, Palette preview, management CLI, and private redacted export. |
-| **0.7.2** | Release candidate | Reliable cached update status, truthful detached refresh scheduling, short failure retries, and one exclusive checker across concurrent shells. |
-| **0.7.1** | Current stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
+| **0.8.0** | Current stable release | Local bounded Workflow Intelligence, `NEXT` suggestions, saved 2–8 step workflows, Palette preview, management CLI, private redacted export, and reliable update scheduling. |
+| **0.7.1** | Previous stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 
 ## Support Dirgo

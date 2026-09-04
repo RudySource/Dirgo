@@ -4,6 +4,8 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-04
+
 ### Added
 
 - Add separately opt-in Workflow Intelligence with exact one- and two-command transition evidence, canonical project/session isolation, and deterministic `NEXT` suggestions in Zsh, Bash, Fish, and PowerShell 7+.
@@ -15,17 +17,6 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 - Migrate command history atomically from schema v2 to v3 without rewriting retained events or aggregates; learned transitions are rebuildable while saved workflows remain user-owned.
 - Replace detached per-selection Palette preview threads with one session-owned latest-request worker that joins on close.
 - Extend `dgo doctor` and `dgo stats` with workflow enablement, schema, rebuild, and bounded learned/saved counts without printing command text or project paths.
-
-### Security
-
-- Keep workflow inference separately disabled by default, require existing command-history consent, and never introduce a run/execute/retry path.
-- Require evidence from at least three observations and two distinct sessions; reject privacy gaps, cross-project/session transitions, controls, bidi overrides, likely credentials, and configured deny-patterns.
-- Publish versioned workflow JSONL atomically with private permissions, redact project paths by default, reject symlink destinations, and require `--force` before replacement.
-
-## [0.7.2] - 2026-09-02
-
-### Changed
-
 - Make interactive `dgo --version` render cached state immediately, then start or observe one detached refresh when the last successful check is stale or missing. Redirected version output remains exactly one line and performs no update-state work.
 - Treat successful release knowledge, cache freshness, and refresh scheduling as separate states so `dgo --version`, navigation notices, and `dgo doctor` report the same facts.
 
@@ -34,9 +25,13 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 - Keep a known newer stable release visible even when its cached result is stale instead of replacing it with a generic stale label.
 - Retry failed fetches after a 15-minute bounded backoff and failed process starts after at most 60 seconds instead of suppressing checks for 24 hours.
 - Use a five-minute exclusive attempt lease so concurrent shells start at most one update checker and clock rollback or malformed state cannot create an unlimited delay.
+- Classify update-check lock contention portably on Unix and Windows.
 
 ### Security
 
+- Keep workflow inference separately disabled by default, require existing command-history consent, and never introduce a run/execute/retry path.
+- Require evidence from at least three observations and two distinct sessions; reject privacy gaps, cross-project/session transitions, controls, bidi overrides, likely credentials, and configured deny-patterns.
+- Publish versioned workflow JSONL atomically with private permissions, redact project paths by default, reject symlink destinations, and require `--force` before replacement.
 - Keep update cache and attempt state bounded, private, atomic where published, and resistant to symlink or non-file state paths; malformed notification markers no longer silently disable checking.
 
 ## [0.7.1] - 2026-09-01
