@@ -157,7 +157,7 @@ foreach character {d g o { } s l} {
     after 8
 }
 expect {
-    -re {(?s)╭.*● DIRGO.*0[.]7.*suggestions.*1–3 of 8.*›.*Slash.*Slate.*Slx-Alpha.*\[↑↓\] Select.*\[Tab\] Insert.*\[Esc\] Close.*╰} {}
+    -re {(?s)╭.*● DIRGO.*[0-9]+[.][0-9]+.*suggestions.*1–3 of 8.*›.*Slash.*Slate.*Slx-Alpha.*\[↑↓\] Select.*\[Tab\] Insert.*\[Esc\] Close.*╰} {}
     timeout { puts stderr "automatic Zsh list did not render the calm three-row state"; send -- "\003exit\r"; expect eof; file delete -force $sandbox; exit 1 }
 }
 expect {
@@ -183,7 +183,7 @@ if {[string first "Slx-Charlie" $postdisplay] < 0 || [string first "Slx-Delta" $
     file delete -force $sandbox
     exit 1
 }
-if {[string first " ghost" $postdisplay] < 0 || [string first "DIRGO 0.7" $postdisplay] < 0} {
+if {[string first " ghost" $postdisplay] < 0 || [string first "DIRGO " $postdisplay] < 0} {
     puts stderr "Dirgo replaced another Zsh plugin's POSTDISPLAY"
     send -- "\003exit\r"
     expect eof
@@ -485,7 +485,7 @@ expect -exact "ASCII:ready"
 expect -exact "DGO-ASCII> "
 send -- "git co"
 expect {
-    -re {(?s)\* DIRGO 0[.]7.*suggestions.*>  commit.*\| Record changes to the repository} {
+    -re {(?s)\* DIRGO [0-9]+[.][0-9]+.*suggestions.*>  commit.*\| Record changes to the repository} {
         set ascii_preview $expect_out(buffer)
         if {[regexp {[·–›↑↓…↳│]} $ascii_preview]} {
             puts stderr "DGO_NO_UNICODE wide preview emitted a Unicode UI glyph"
@@ -540,7 +540,7 @@ expect -exact "NOCOLOR:ready"
 expect -exact "DGO-NARROW> "
 send -- "dgo sl"
 expect {
-    -re {(?s)\* DIRGO 0[.]7.*suggestions.*1-3 of 8.*>  Slash  \| directory.*\[Up/Down\] Select \| \[Tab\] Insert \| \[Esc\] Close} {
+    -re {(?s)\* DIRGO [0-9]+[.][0-9]+.*suggestions.*1-3 of 8.*>  Slash  \| directory.*\[Up/Down\] Select \| \[Tab\] Insert \| \[Esc\] Close} {
         set panel $expect_out(buffer)
         if {[regexp {\x1b\[[0-9;]*mDIRGO} $panel]} {
             puts stderr "NO_COLOR Zsh panel emitted a styled Dirgo label"

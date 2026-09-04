@@ -20,6 +20,7 @@ pub fn tasks(snapshot: &ProjectCommandSnapshot, budget: ProviderBudget) -> Provi
             subtitle: command.description.clone(),
             insert_text: Some(command.replacement.clone()),
             preview_key: Some(format!("task:{}", command.stable_id)),
+            workflow_preview: None,
             action: PaletteAction::Insert {
                 text: command.replacement.clone(),
             },

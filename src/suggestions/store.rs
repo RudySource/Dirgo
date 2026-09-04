@@ -17,7 +17,8 @@ use super::{
     privacy::is_sensitive_command, providers::CommandHistoryEntry,
 };
 
-pub const HISTORY_SCHEMA_VERSION: u64 = 2;
+pub const HISTORY_SCHEMA_VERSION: u64 = crate::workflows::WORKFLOW_SCHEMA_VERSION;
+const PREVIOUS_HISTORY_SCHEMA_VERSION: u64 = 2;
 const LEGACY_GLOBAL_SCOPE: &str = "legacy_global";
 const GLOBAL_SCOPE: &str = "global";
 const HISTORY: TableDefinition<&str, &[u8]> = TableDefinition::new("command_history");
@@ -104,7 +105,10 @@ pub fn read_history_snapshot(path: &Path) -> Result<CommandHistorySnapshot> {
         .ok_or_else(|| {
             crate::DirgoError::User("command-history schema marker is missing".into())
         })?;
-    if schema_version != HISTORY_SCHEMA_VERSION {
+    if !matches!(
+        schema_version,
+        PREVIOUS_HISTORY_SCHEMA_VERSION | HISTORY_SCHEMA_VERSION
+    ) {
         return Err(crate::DirgoError::User(format!(
             "history schema version {schema_version} is unsupported; preserve the file and upgrade Dirgo"
         )));
@@ -161,6 +165,17 @@ impl CommandHistoryStore {
     fn ensure_schema(&self) -> Result<()> {
         match self.schema_version_if_present()? {
             Some(HISTORY_SCHEMA_VERSION) => return Ok(()),
+            Some(PREVIOUS_HISTORY_SCHEMA_VERSION) => {
+                let write = self.db.begin_write()?;
+                crate::workflows::store::create_schema_tables(&write)?;
+                {
+                    let mut meta = write.open_table(HISTORY_META)?;
+                    meta.insert("schema_version", HISTORY_SCHEMA_VERSION)?;
+                    meta.insert("last_successful_migration", unix_now())?;
+                }
+                write.commit()?;
+                return Ok(());
+            }
             Some(version) => {
                 return Err(crate::DirgoError::User(format!(
                     "history schema version {version} is unsupported; preserve the file and upgrade Dirgo"
@@ -203,6 +218,7 @@ impl CommandHistoryStore {
         {
             let _events = write.open_table(EVENTS)?;
         }
+        crate::workflows::store::create_schema_tables(&write)?;
         {
             let mut meta = write.open_table(HISTORY_META)?;
             meta.insert("schema_version", HISTORY_SCHEMA_VERSION)?;
@@ -254,6 +270,10 @@ impl CommandHistoryStore {
         self.schema_version_if_present()?.ok_or_else(|| {
             crate::DirgoError::User("command-history schema marker is missing".into())
         })
+    }
+
+    pub(crate) fn database(&self) -> &Database {
+        &self.db
     }
 
     pub fn all_events(&self) -> Result<Vec<CommandHistoryEventV2>> {
@@ -385,6 +405,9 @@ impl CommandHistoryStore {
             events.insert(event.id, encoded.as_slice())?;
         }
         prune_transaction(&write, event.started_at, config)?;
+        if config.workflow_suggestions {
+            crate::workflows::store::rebuild_transition_table(&write, event.started_at)?;
+        }
         write.commit()?;
         Ok(true)
     }
@@ -406,6 +429,7 @@ impl CommandHistoryStore {
         let write = self.db.begin_write()?;
         clear_events(&write)?;
         clear_aggregates(&write)?;
+        crate::workflows::store::clear_transition_table(&write)?;
         {
             let mut meta = write.open_table(HISTORY_META)?;
             meta.insert("next_event_id", 1)?;
@@ -489,6 +513,7 @@ impl CommandHistoryStore {
                 aggregates.insert(key.as_str(), encoded.as_slice())?;
             }
         }
+        crate::workflows::store::rebuild_transition_table(&write, unix_now())?;
         write.commit()?;
         Ok(removed)
     }
@@ -642,7 +667,10 @@ fn preflight_existing_schema(path: &Path) -> Result<()> {
     };
     let version = meta.get("schema_version")?.map(|value| value.value());
     if let Some(version) = version
-        && version != HISTORY_SCHEMA_VERSION
+        && !matches!(
+            version,
+            PREVIOUS_HISTORY_SCHEMA_VERSION | HISTORY_SCHEMA_VERSION
+        )
     {
         return Err(crate::DirgoError::User(format!(
             "history schema version {version} is unsupported; preserve the file and upgrade Dirgo"
@@ -691,7 +719,10 @@ pub fn read_command_history(
         }
         return filter_legacy_entries(entries, now, config);
     }
-    if version != Some(HISTORY_SCHEMA_VERSION) {
+    if !matches!(
+        version,
+        Some(PREVIOUS_HISTORY_SCHEMA_VERSION | HISTORY_SCHEMA_VERSION)
+    ) {
         return Err(crate::DirgoError::User(format!(
             "history schema version {} is unsupported; preserve the file and upgrade Dirgo",
             version.unwrap_or_default()

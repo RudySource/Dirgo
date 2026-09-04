@@ -67,7 +67,7 @@ fi
 
 function dgo() {
     case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|workflows|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -150,7 +150,7 @@ if command dgo __suggest-enabled >/dev/null 2>&1 && [[ -o interactive ]]; then
   typeset -g _DGO_LIVE_VERSION="$(command dgo --version 2>/dev/null)"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION#dgo }"
   _DGO_LIVE_VERSION="${_DGO_LIVE_VERSION%.*}"
-  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='0.7'
+  [[ -n "$_DGO_LIVE_VERSION" ]] || _DGO_LIVE_VERSION='?'
   typeset -g _DGO_LIVE_ACCENT_STYLE='fg=#20bf55,bold'
   typeset -g _DGO_LIVE_SELECTED_STYLE='fg=#f4f7f8,bg=#102018,bold'
   typeset -g _DGO_LIVE_TEXT_STYLE='fg=#f4f7f8'
@@ -875,7 +875,7 @@ fi
 
 dgo() {
   case "${1:-}" in
-    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
+    setup|init|completions|refresh|query|explain|bench|root|roots|palette|repo|bookmarks|bookmark|import|doctor|stats|config|support|suggestions|workflows|update-notifications|--update|--open|--finder|--code|--copy|--print|--refresh|-r|--doctor|--bookmarks|--forget|--help|-h|--version|-V)
       command dgo "$@"
       return $?
       ;;
@@ -1017,7 +1017,7 @@ end
 function dgo --description 'Go anywhere. Instantly.'
     if test (count $argv) -gt 0
         switch "$argv[1]"
-            case setup init completions refresh query explain bench root roots palette repo bookmarks bookmark import doctor stats config support suggestions update-notifications --update --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
+            case setup init completions refresh query explain bench root roots palette repo bookmarks bookmark import doctor stats config support suggestions workflows update-notifications --update --open --finder --code --copy --print --refresh -r --doctor --bookmarks --forget --help -h --version -V
                 command dgo $argv
                 return $status
         end
@@ -1165,7 +1165,7 @@ function global:dgo {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DirgoArguments)
 
     $management = @('setup', 'init', 'completions', 'refresh', 'query', 'explain', 'bench',
-        'root', 'roots', 'palette', 'repo', 'bookmarks', 'bookmark', 'import', 'doctor', 'stats', 'config', 'support',
+        'root', 'roots', 'palette', 'repo', 'bookmarks', 'bookmark', 'import', 'doctor', 'stats', 'config', 'support', 'workflows',
         'suggestions', 'update-notifications', '--update', '--open', '--finder', '--code',
         '--copy', '--print', '--refresh', '-r', '--doctor', '--bookmarks', '--forget',
         '--help', '-h', '--version', '-V')
@@ -1395,6 +1395,7 @@ _dgo() {
     'bookmarks:list bookmarks' 'bookmark:manage bookmarks' 'doctor:inspect configuration'
     'stats:show local statistics' 'config:inspect configuration' 'support:show support guidance'
     'suggestions:manage shell-native suggestions'
+    'workflows:inspect and manage workflow suggestions'
     'update-notifications:enable or disable update notices'
   )
   global_options=(
@@ -1416,6 +1417,7 @@ _dgo() {
         import) _arguments '1:source:(zoxide)' ;;
         init|completions) _arguments '1:shell:(zsh bash fish powershell)' ;;
         suggestions) _arguments '1:operation:(enable disable status doctor history)' ;;
+        workflows) _arguments '1:operation:(enable disable status next list show save rename remove clear-learned export)' ;;
       esac ;;
   esac
   [[ "$state" == query ]] && _dgo_live_engine_matches
@@ -1444,11 +1446,12 @@ _dgo_complete() {
   fi
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands='setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
+  commands='setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions workflows update-notifications'
   options='--update --open --finder --code --copy --print --no-color --no-unicode --verbose --refresh --doctor --bookmarks --forget --help --version'
   case "$prev" in
     init|completions) COMPREPLY=( $(compgen -W 'zsh bash fish powershell' -- "$cur") ) ;;
     suggestions) COMPREPLY=( $(compgen -W 'enable disable status doctor history' -- "$cur") ) ;;
+    workflows) COMPREPLY=( $(compgen -W 'enable disable status next list show save rename remove clear-learned export' -- "$cur") ) ;;
     import) COMPREPLY=( $(compgen -W 'zoxide' -- "$cur") ) ;;
     config) COMPREPLY=( $(compgen -W 'path show' -- "$cur") ) ;;
     update-notifications) COMPREPLY=( $(compgen -W 'on off' -- "$cur") ) ;;
@@ -1485,7 +1488,7 @@ function __dgo_live_candidates
         --format lines --terminal-rows "$LINES" --terminal-columns "$COLUMNS" 2>/dev/null
 end
 complete -c dgo -a '(__dgo_live_candidates)'
-complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications'
+complete -c dgo -n '__fish_use_subcommand' -a 'setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions workflows update-notifications'
 complete -c dgo -l update -d 'Install the latest Dirgo release'
 complete -c dgo -l open -d 'Open with the OS'
 complete -c dgo -l finder -d 'Open in file browser'
@@ -1503,6 +1506,7 @@ complete -c dgo -n '__fish_seen_subcommand_from update-notifications' -a 'on off
 complete -c dgo -n '__fish_seen_subcommand_from bookmark' -a 'add remove rename'
 complete -c dgo -n '__fish_seen_subcommand_from roots' -a 'list add remove'
 complete -c dgo -n '__fish_seen_subcommand_from suggestions' -a 'enable disable status doctor history'
+complete -c dgo -n '__fish_seen_subcommand_from workflows' -a 'enable disable status next list show save rename remove clear-learned export'
 complete -c dgo -n '__fish_seen_subcommand_from remove rename' -a '(__dgo_bookmarks)'
 "#;
 
@@ -1517,9 +1521,17 @@ const POWERSHELL_COMPLETIONS: &str = r#"Register-ArgumentCompleter -Native -Comm
         }
         return
     }
+    if ($tokens.Count -ge 2 -and $tokens[1] -eq 'workflows') {
+        foreach ($operation in @('enable', 'disable', 'status', 'next', 'list', 'show', 'save', 'rename', 'remove', 'clear-learned', 'export')) {
+            if ($operation.StartsWith($wordToComplete, [System.StringComparison]::OrdinalIgnoreCase)) {
+                [System.Management.Automation.CompletionResult]::new($operation, $operation, 'ParameterValue', $operation)
+            }
+        }
+        return
+    }
     $commands = @('setup', 'init', 'completions', 'refresh', 'query', 'explain', 'bench',
         'root', 'roots', 'palette', 'repo', 'recent', 'back', 'forward', 'import', 'bookmarks', 'bookmark',
-        'doctor', 'stats', 'config', 'support', 'suggestions', 'update-notifications')
+        'doctor', 'stats', 'config', 'support', 'suggestions', 'workflows', 'update-notifications')
     foreach ($command in $commands) {
         if ($command.StartsWith($wordToComplete, [System.StringComparison]::OrdinalIgnoreCase)) {
             [System.Management.Automation.CompletionResult]::new($command, $command, 'ParameterValue', $command)

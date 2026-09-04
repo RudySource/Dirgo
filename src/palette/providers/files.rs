@@ -57,6 +57,7 @@ pub fn files(root: &Path, budget: ProviderBudget) -> ProviderBatch {
                 subtitle: if is_directory { "Directory" } else { "File" }.into(),
                 insert_text: None,
                 preview_key: Some(format!("file:{}", path.display())),
+                workflow_preview: None,
                 action: if is_directory {
                     PaletteAction::Navigate { path: path.clone() }
                 } else {

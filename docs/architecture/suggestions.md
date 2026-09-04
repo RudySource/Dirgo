@@ -103,6 +103,11 @@ management. Reads do not mutate database bytes. Export is private and atomic,
 refuses symlink destinations and existing files unless `--force` is supplied,
 and omits cwd/project paths unless `--include-paths` is explicitly requested.
 
+Schema v3 also supports separately opted-in Workflow Intelligence. Its bounded
+snapshot contributes `NEXT` candidates only after a non-empty prefix and never
+writes on the keystroke path. See [Workflow Intelligence](workflows.md) for the
+evidence, privacy, management, downgrade, and insertion-only contracts.
+
 ## Live completion contract
 
 - The panel becomes eligible after the first non-whitespace character and is
@@ -224,6 +229,6 @@ an in-flight frame always completes against one coherent snapshot.
 
 Suggestions inherit terminal colors and do not depend on color, dim text, or
 Nerd Fonts alone. Explicit lists identify sources with text labels such as
-`CMD`, `SUB`, `OPT`, `DIR`, `FILE`, `HIST`, and `NAV`. Reduced-capability
+`CMD`, `SUB`, `OPT`, `DIR`, `FILE`, `HIST`, `NEXT`, and `NAV`. Reduced-capability
 environments use ASCII or completion-only fallbacks and never receive
 cursor-positioning overlays.

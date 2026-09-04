@@ -429,6 +429,7 @@ fn source_label(source: SuggestionSource) -> &'static str {
         SuggestionSource::Alias => "ALS",
         SuggestionSource::Filesystem => "FILE",
         SuggestionSource::ProjectCommand => "PROJ",
+        SuggestionSource::Workflow => "NEXT",
     }
 }
 
@@ -544,6 +545,7 @@ mod tests {
         assert_eq!(source_label(SuggestionSource::Subcommand), "SUB");
         assert_eq!(source_label(SuggestionSource::Option), "OPT");
         assert_eq!(source_label(SuggestionSource::ProjectCommand), "PROJ");
+        assert_eq!(source_label(SuggestionSource::Workflow), "NEXT");
         assert_eq!(centered(Rect::new(0, 0, 3, 2)), Rect::new(0, 0, 3, 2));
         assert_eq!(ASCII_BORDER.top_left, "+");
         assert_eq!(ASCII_BORDER.vertical_left, "|");

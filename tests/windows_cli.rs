@@ -86,3 +86,15 @@ fn doctor_runs_against_isolated_windows_storage() {
         .success()
         .stdout(predicate::str::contains("Dirgo Doctor"));
 }
+
+#[test]
+fn powershell_completion_exposes_workflow_management() {
+    Fixture::new()
+        .command()
+        .args(["completions", "powershell"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("workflows").and(predicate::str::contains("clear-learned")),
+        );
+}

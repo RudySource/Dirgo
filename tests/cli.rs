@@ -156,9 +156,27 @@ fn completions_do_not_require_xdg_storage_and_cover_public_commands() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions update-notifications")
-                .and(predicate::str::contains("_dgo_bookmarks")),
+            predicate::str::contains("setup init completions refresh query explain bench root roots palette repo recent back forward import bookmarks bookmark doctor stats config support suggestions workflows update-notifications")
+                .and(predicate::str::contains("_dgo_bookmarks"))
+                .and(predicate::str::contains("clear-learned")),
         );
+}
+
+#[test]
+fn every_generated_completion_exposes_workflow_management() {
+    let fixture = Fixture::new();
+    for shell in ["zsh", "bash", "fish", "powershell"] {
+        fixture
+            .command()
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains("workflows")
+                    .and(predicate::str::contains("clear-learned"))
+                    .and(predicate::str::contains("export")),
+            );
+    }
 }
 
 #[test]

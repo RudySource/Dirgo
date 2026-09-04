@@ -1,6 +1,6 @@
 [package]
 name = "dirgo"
-version = "0.7.2"
+version = "0.8.0"
 default-run = "dgo"
 edition = "2024"
 rust-version = "1.89"
@@ -63,4 +63,8 @@ harness = false
 
 [[bench]]
 name = "suggestions"
+harness = false
+
+[[bench]]
+name = "workflows"
 harness = false

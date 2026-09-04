@@ -4,6 +4,24 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add separately opt-in Workflow Intelligence with exact one- and two-command transition evidence, canonical project/session isolation, and deterministic `NEXT` suggestions in Zsh, Bash, Fish, and PowerShell 7+.
+- Add saved 2–8 step workflows plus `dgo workflows enable|disable|status|next|list|show|save|rename|remove|clear-learned|export` management commands.
+- Add a bounded Workspace Palette Workflows source after Tasks and before Git, with full-sequence preview and one-step insertion.
+
+### Changed
+
+- Migrate command history atomically from schema v2 to v3 without rewriting retained events or aggregates; learned transitions are rebuildable while saved workflows remain user-owned.
+- Replace detached per-selection Palette preview threads with one session-owned latest-request worker that joins on close.
+- Extend `dgo doctor` and `dgo stats` with workflow enablement, schema, rebuild, and bounded learned/saved counts without printing command text or project paths.
+
+### Security
+
+- Keep workflow inference separately disabled by default, require existing command-history consent, and never introduce a run/execute/retry path.
+- Require evidence from at least three observations and two distinct sessions; reject privacy gaps, cross-project/session transitions, controls, bidi overrides, likely credentials, and configured deny-patterns.
+- Publish versioned workflow JSONL atomically with private permissions, redact project paths by default, reject symlink destinations, and require `--force` before replacement.
+
 ## [0.7.2] - 2026-09-02
 
 ### Changed

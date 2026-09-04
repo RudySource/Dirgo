@@ -20,6 +20,7 @@ pub fn compose(snapshot: &ProjectCommandSnapshot, budget: ProviderBudget) -> Pro
             subtitle: command.description.clone(),
             insert_text: Some(command.replacement.clone()),
             preview_key: Some(format!("compose:{}", command.stable_id)),
+            workflow_preview: None,
             action: PaletteAction::Insert {
                 text: command.replacement.clone(),
             },

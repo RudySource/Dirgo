@@ -4,8 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| Latest `0.2.x` release | Yes |
-| `0.1.x` and older | No |
+| Latest `0.8.x` release | Yes |
+| `0.7.x` and older | No |
 
 Security fixes are released from the current `main` branch. Users should update
 to the latest published release before reporting a problem.
@@ -22,3 +22,7 @@ If the private reporting flow is unavailable, keep a minimal local reproduction 
 - The index is untrusted local data and must never become executable shell text.
 - Actions must use direct process arguments, never `sh -c` path interpolation.
 - Corrupt disposable index data may be quarantined and rebuilt. Persistent user state must be backed up before recovery.
+- Command history and Workflow Intelligence are separate opt-ins. Learned and
+  saved workflows are insertion data only and never authorize automatic execution.
+- Workflow exports redact project paths by default, refuse symlink targets, use
+  private permissions, and require `--force` before replacement.

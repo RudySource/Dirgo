@@ -234,6 +234,9 @@ pub fn run() -> Result<i32> {
     if let Some(Command::Suggestions { command }) = &cli.command {
         return suggestions_command(&paths, &mut config, command);
     }
+    if let Some(Command::Workflows { command }) = &cli.command {
+        return crate::workflows::commands::run(&paths, &mut config, command);
+    }
     if matches!(cli.command, Some(Command::Suggest)) {
         return hidden_suggest(&paths, &config);
     }
@@ -399,6 +402,7 @@ pub fn run() -> Result<i32> {
         Some(Command::Support) => unreachable!("handled before storage access"),
         Some(
             Command::Suggestions { .. }
+            | Command::Workflows { .. }
             | Command::Suggest
             | Command::SuggestWorker { .. }
             | Command::SuggestRecord
@@ -494,10 +498,14 @@ fn suggestions_command(
                 if !paths.suggestions_state_file.exists() {
                     if *json {
                         println!(
-                            "{{\"schema_version\":2,\"event_count\":0,\"aggregate_count\":0}}"
+                            "{{\"schema_version\":{},\"event_count\":0,\"aggregate_count\":0}}",
+                            crate::suggestions::HISTORY_SCHEMA_VERSION
                         );
                     } else {
-                        println!("History schema  v2\nEvents          0\nAggregates      0");
+                        println!(
+                            "History schema  v{}\nEvents          0\nAggregates      0",
+                            crate::suggestions::HISTORY_SCHEMA_VERSION
+                        );
                     }
                 } else {
                     let status = read_history_snapshot(&paths.suggestions_state_file)?.status();
@@ -987,6 +995,10 @@ fn palette_budgets() -> HashMap<PaletteSource, ProviderBudget> {
             ProviderBudget::new(128, Duration::from_millis(20)),
         ),
         (
+            PaletteSource::Workflows,
+            ProviderBudget::new(64, Duration::from_millis(20)),
+        ),
+        (
             PaletteSource::Git,
             ProviderBudget::new(128, Duration::from_millis(120)),
         ),
@@ -1018,6 +1030,16 @@ fn build_palette_snapshot(
         .transpose()?;
     let empty_project = crate::suggestions::ProjectCommandSnapshot::new(cwd.clone(), Vec::new());
     let project = project.as_ref().unwrap_or(&empty_project);
+    let workflow = load_workflow_suggestion_snapshot(paths, config);
+    let workflow_scope = project_root
+        .clone()
+        .map(crate::workflows::WorkflowScope::Project)
+        .unwrap_or(crate::workflows::WorkflowScope::Global);
+    let project_commands = project
+        .commands()
+        .iter()
+        .map(|command| command.replacement.clone())
+        .collect::<std::collections::BTreeSet<_>>();
     let budgets = palette_budgets();
     let budget = |source| {
         budgets
@@ -1030,6 +1052,25 @@ fn build_palette_snapshot(
             .spawn(|| crate::palette::providers::files(file_root, budget(PaletteSource::Files)));
         let tasks =
             scope.spawn(|| crate::palette::providers::tasks(project, budget(PaletteSource::Tasks)));
+        let workflows = scope.spawn(|| {
+            workflow.as_ref().map_or_else(
+                || {
+                    crate::palette::ProviderBatch::ready(
+                        PaletteSource::Workflows,
+                        Vec::new(),
+                        Duration::ZERO,
+                    )
+                },
+                |snapshot| {
+                    crate::palette::providers::workflows(
+                        snapshot,
+                        workflow_scope,
+                        &project_commands,
+                        budget(PaletteSource::Workflows),
+                    )
+                },
+            )
+        });
         let git = scope.spawn(|| crate::palette::providers::git(&cwd, budget(PaletteSource::Git)));
         let compose = scope
             .spawn(|| crate::palette::providers::compose(project, budget(PaletteSource::Compose)));
@@ -1047,6 +1088,12 @@ fn build_palette_snapshot(
                 crate::palette::ProviderBatch::failed(
                     PaletteSource::Tasks,
                     "tasks provider stopped unexpectedly",
+                )
+            }),
+            workflows.join().unwrap_or_else(|_| {
+                crate::palette::ProviderBatch::failed(
+                    PaletteSource::Workflows,
+                    "workflows provider stopped unexpectedly",
                 )
             }),
             git.join().unwrap_or_else(|_| {
@@ -1484,6 +1531,7 @@ fn suggestion_source_label(source: crate::suggestions::SuggestionSource) -> &'st
         SuggestionSource::Alias => "ALS",
         SuggestionSource::Filesystem => "FILE",
         SuggestionSource::ProjectCommand => "PROJ",
+        SuggestionSource::Workflow => "NEXT",
     }
 }
 
@@ -1537,7 +1585,9 @@ fn load_suggestion_data(
         &paths.suggestions_state_file,
         unix_now(),
         &config.suggestions,
-    )?;
+    )
+    .unwrap_or_default();
+    let workflow = load_workflow_suggestion_snapshot(paths, config);
     let mut catalog = if include_executables {
         CommandCatalog::discover(env::var_os("PATH").as_deref())
     } else {
@@ -1553,7 +1603,34 @@ fn load_suggestion_data(
         ranking: config.ranking.clone(),
         catalog,
         command_history,
+        workflow,
     })
+}
+
+fn load_workflow_suggestion_snapshot(
+    paths: &AppPaths,
+    config: &Config,
+) -> Option<crate::suggestions::WorkflowSnapshot> {
+    if !config.suggestions.workflow_suggestions
+        || !config.suggestions.command_history
+        || !paths.suggestions_state_file.exists()
+    {
+        return None;
+    }
+    (|| {
+        let workflow = crate::workflows::read_workflow_snapshot(&paths.suggestions_state_file)?;
+        let history = read_history_snapshot(&paths.suggestions_state_file)?;
+        let session = env::var("DGO_SESSION_ID").ok();
+        Ok::<_, DirgoError>(session.map(|session| {
+            crate::suggestions::WorkflowSnapshot::new(
+                workflow.transitions,
+                workflow.saved,
+                history.events,
+                &session,
+            )
+        }))
+    })()
+    .unwrap_or(None)
 }
 
 fn init_logging(verbose: u8) {
@@ -2499,6 +2576,36 @@ fn doctor(paths: &AppPaths, config: Result<Config>) -> Result<i32> {
         }
     };
     println!("{update_marker} update         {update_detail}");
+    if paths.suggestions_state_file.exists() {
+        match (
+            read_history_snapshot(&paths.suggestions_state_file),
+            crate::workflows::read_workflow_snapshot(&paths.suggestions_state_file),
+        ) {
+            (Ok(history), Ok(workflows)) => println!(
+                "✓ learning       history={} events/{} aggregates ({}); workflows={} learned/{} saved ({}, schema v{}, rebuilt {})",
+                history.events.len(),
+                history.aggregates.len(),
+                enabled_label(config.suggestions.command_history),
+                workflows.transitions.len(),
+                workflows.saved.len(),
+                enabled_label(config.suggestions.workflow_suggestions),
+                workflows.status.schema_version,
+                workflows.status.last_rebuild,
+            ),
+            (Err(error), _) | (_, Err(error)) => {
+                println!(
+                    "! learning       unhealthy ({}); preserve suggestions.redb, then run `dgo suggestions doctor`",
+                    terminal::safe_text(&error.to_string())
+                );
+            }
+        }
+    } else {
+        println!(
+            "✓ learning       history={} workflows={}; storage not created",
+            enabled_label(config.suggestions.command_history),
+            enabled_label(config.suggestions.workflow_suggestions),
+        );
+    }
     println!("✓ palette        files/tasks/git/compose/places; bounded on open");
     let availability = crate::actions::availability(&config.actions);
     println!(
@@ -2567,12 +2674,29 @@ fn stats(paths: &AppPaths, config: &Config) -> Result<i32> {
         .unwrap_or(0)
         + std::fs::metadata(&paths.state_file)
             .map(|meta| meta.len())
+            .unwrap_or(0)
+        + std::fs::metadata(&paths.suggestions_state_file)
+            .map(|meta| meta.len())
             .unwrap_or(0);
+    let (history_events, history_aggregates, learned_transitions, saved_workflows) =
+        if paths.suggestions_state_file.exists() {
+            let history = read_history_snapshot(&paths.suggestions_state_file)?;
+            let workflows =
+                crate::workflows::read_workflow_snapshot(&paths.suggestions_state_file)?;
+            (
+                history.events.len(),
+                history.aggregates.len(),
+                workflows.transitions.len(),
+                workflows.saved.len(),
+            )
+        } else {
+            (0, 0, 0, 0)
+        };
     let root_statuses = crate::roots::statuses(&config.roots);
     let accessible_roots = root_statuses.iter().filter(|root| root.accessible).count();
     let focused_roots = root_statuses.iter().filter(|root| root.focused).count();
     println!(
-        "Dirgo stats\n\nIndexed directories   {directories}\nProjects              {projects}\nSearch roots          {}\nAccessible roots      {accessible_roots}\nFocused roots         {focused_roots}\nBookmarks             {}\nDirgo navigations     {jumps}\nMost visited          {most}\nIndex age             {age}\nDatabase size         {:.1} MB",
+        "Dirgo stats\n\nIndexed directories   {directories}\nProjects              {projects}\nSearch roots          {}\nAccessible roots      {accessible_roots}\nFocused roots         {focused_roots}\nBookmarks             {}\nDirgo navigations     {jumps}\nHistory events        {history_events}\nHistory aggregates    {history_aggregates}\nLearned transitions   {learned_transitions}\nSaved workflows       {saved_workflows}\nMost visited          {most}\nIndex age             {age}\nDatabase size         {:.1} MB",
         root_statuses.len(),
         bookmarks.len(),
         db_size as f64 / 1_048_576.0

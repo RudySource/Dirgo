@@ -16,6 +16,7 @@ fn item(source: PaletteSource, title: &str) -> PaletteItem {
         subtitle: format!("{title} detail"),
         insert_text: Some(title.into()),
         preview_key: Some(format!("preview:{title}")),
+        workflow_preview: None,
         action: PaletteAction::Insert { text: title.into() },
         score: 100,
     }
