@@ -64,6 +64,14 @@ set update [open $update_cache w]
 puts $update "{\"checked_at\":[clock seconds],\"latest_version\":\"9.9.9\"}"
 close $update
 unset env(DGO_DISABLE_UPDATE_CHECK)
+file mkdir "$sandbox/fake-bin"
+set transport [open "$sandbox/fake-bin/curl" w]
+puts $transport {#!/bin/sh}
+puts $transport {printf '%s\n' '{"tag_name":"v9.9.9"}'}
+close $transport
+file attributes "$sandbox/fake-bin/curl" -permissions 0755
+set original_path $env(PATH)
+set env(PATH) "$sandbox/fake-bin:$env(PATH)"
 spawn -noecho "$env(DGO_BIN)" --version
 expect {
     -exact "dgo $env(DGO_VERSION)" {}
@@ -71,7 +79,8 @@ expect {
 }
 expect {
     -exact "Update 9.9.9 available" {}
-    timeout { puts stderr "interactive version omitted cached update status"; file delete -force $sandbox; exit 1 }
+    timeout { puts stderr "interactive version omitted fresh update status"; file delete -force $sandbox; exit 1 }
+    eof { puts stderr "interactive version exited without fresh update status"; file delete -force $sandbox; exit 1 }
 }
 expect eof
 if {[lindex [wait] 3] != 0} {
@@ -80,6 +89,7 @@ if {[lindex [wait] 3] != 0} {
     exit 1
 }
 set env(DGO_DISABLE_UPDATE_CHECK) 1
+set env(PATH) $original_path
 
 proc probe_values {} {
     global env

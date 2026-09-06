@@ -89,7 +89,7 @@ for required_file in \
   scripts/render-scoop-manifest.sh scripts/render-context-engine-demo.sh scripts/render-workspace-palette-demo.sh \
   scripts/render-workflows-demo.sh scripts/render-workflow-frame.swift scripts/repository-hygiene.sh \
   scripts/pty-suggestions-smoke.exp scripts/pty-zsh-live-completion.exp scripts/pty-palette-smoke.exp \
-  scripts/pty-update-status.exp \
+  scripts/pty-update-status.exp scripts/pty-version-fresh.exp \
   scripts/windows-suggestions-smoke.ps1 \
   powershell/DirgoPredictor/DirgoPredictor.cs \
   powershell/DirgoPredictor/DirgoPredictor.csproj \

@@ -48,23 +48,23 @@ send -- "\r"
 expect -exact "UPDATE:ready"
 expect -exact "UPDATE> "
 
-set timeout 2
+set timeout 6
 send -- "\"$env(DGO_BIN)\" --version\r"
 expect {
     -exact "dgo $env(DGO_VERSION)" {}
     timeout { puts stderr "interactive version blocked before rendering"; file delete -force $sandbox; exit 1 }
 }
 expect -exact "Update 9.9.9 available"
-expect -exact "Cached result · checking again"
+expect -exact "Run `dgo --update`"
 expect {
     -exact "UPDATE> " {}
-    timeout { puts stderr "interactive version waited for the background fetch"; file delete -force $sandbox; exit 1 }
+    timeout { puts stderr "interactive version did not complete its fetch"; file delete -force $sandbox; exit 1 }
 }
 
-# A second shell command observes the same lease and must not start another child.
+# A second explicit request must also check the server, even with a fresh cache.
 send -- "\"$env(DGO_BIN)\" --version\r"
 expect -exact "dgo $env(DGO_VERSION)"
-expect -exact "Cached result · checking again"
+expect -exact "Run `dgo --update`"
 expect {
     -exact "UPDATE> " {}
     timeout { puts stderr "second interactive version blocked"; file delete -force $sandbox; exit 1 }
@@ -109,8 +109,8 @@ if {![file exists $env(DGO_UPDATE_TEST_COUNT)]} {
 set count_file [open $env(DGO_UPDATE_TEST_COUNT) r]
 set count_lines [split [string trim [read $count_file]] "\n"]
 close $count_file
-if {[llength $count_lines] != 1} {
-    puts stderr "concurrent version calls started [llength $count_lines] fetches"
+if {[llength $count_lines] != 2} {
+    puts stderr "two explicit version calls started [llength $count_lines] fetches"
     file delete -force $sandbox
     exit 1
 }
@@ -130,4 +130,9 @@ if {[lindex [wait] 3] != 0} {
 
 puts "UPDATE-PTY:status-and-scheduling:ok"
 file delete -force $sandbox
+if {[catch {exec expect [file join [file dirname [info script]] pty-version-fresh.exp]} result]} {
+    puts stderr $result
+    exit 1
+}
+puts $result
 exit 0
