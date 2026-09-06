@@ -142,11 +142,84 @@ pub fn print_version() -> Result<i32> {
     let dumb_terminal = env::var("TERM").is_ok_and(|term| term.eq_ignore_ascii_case("dumb"));
     let color = env::var_os("NO_COLOR").is_none() && !dumb_terminal;
     let unicode = env::var_os("DGO_NO_UNICODE").is_none() && !dumb_terminal;
-    let timestamp = now();
-    let mut view = local_view_at(&paths, timestamp);
-    view.refresh = schedule_refresh_at(&paths, timestamp, spawn_background_check);
-    print!("{}", render_version_status(&view, color, unicode));
+    io::stdout()
+        .flush()
+        .map_err(|error| DirgoError::io("stdout", error))?;
+    print!(
+        "{}",
+        checked_version_status(&paths, color, unicode, fetch_latest_version)
+    );
     Ok(0)
+}
+
+fn checked_version_status(
+    paths: &AppPaths,
+    color: bool,
+    unicode: bool,
+    fetcher: impl FnOnce() -> Result<String>,
+) -> String {
+    let cached = local_view(paths);
+    if matches!(
+        cached.refresh,
+        RefreshDisposition::Disabled | RefreshDisposition::StartFailed
+    ) {
+        return render_version_status(
+            &UpdateView {
+                relation: VersionRelation::Unknown,
+                ..cached
+            },
+            color,
+            unicode,
+        );
+    }
+    // An explicit version request checks independently of background leases and backoff.
+    // It never waits for a background process or its state-file lock.
+    let latest = fetcher().and_then(|text| {
+        parse_version(&text)
+            .map(|version| (text, version))
+            .ok_or_else(|| DirgoError::User("invalid stable release version".into()))
+    });
+    match latest {
+        Ok((text, latest)) => {
+            let timestamp = now();
+            if let Err(error) = publish_cache(paths, text, timestamp) {
+                tracing::debug!(%error, "could not cache explicit update check");
+            }
+            let current = parse_version(env!("CARGO_PKG_VERSION")).expect("package version");
+            let relation = match current.cmp(&latest) {
+                std::cmp::Ordering::Less => VersionRelation::UpdateAvailable { latest },
+                std::cmp::Ordering::Equal => VersionRelation::Current { latest },
+                std::cmp::Ordering::Greater => VersionRelation::AheadOfLatest { latest },
+            };
+            render_version_status(
+                &UpdateView {
+                    relation,
+                    freshness: CacheFreshness::Fresh,
+                    last_success_at: Some(timestamp),
+                    refresh: RefreshDisposition::NotDue,
+                },
+                color,
+                unicode,
+            )
+        }
+        Err(error) => {
+            tracing::debug!(%error, "explicit update check failed");
+            let marker = if unicode { "●" } else { "*" };
+            let mut status = format!(
+                "\n{marker}  Could not check for updates\n   Check your connection and try `dgo --version` again.\n"
+            );
+            match cached.relation {
+                VersionRelation::UpdateAvailable { latest } => status.push_str(&format!(
+                    "   Last known stable: {latest} (cached) · run `dgo --update`\n"
+                )),
+                VersionRelation::Current { latest } | VersionRelation::AheadOfLatest { latest } => {
+                    status.push_str(&format!("   Last known stable: {latest} (cached)\n"))
+                }
+                VersionRelation::Unknown => {}
+            }
+            status
+        }
+    }
 }
 
 pub fn local_view(paths: &AppPaths) -> UpdateView {
@@ -712,6 +785,41 @@ fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_failure_never_claims_cached_current_is_up_to_date() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = test_paths(&temp);
+        publish_cache(&paths, env!("CARGO_PKG_VERSION").into(), now()).unwrap();
+        let status = checked_version_status(&paths, false, false, || {
+            Err(DirgoError::User("offline".into()))
+        });
+        assert!(status.contains("Could not check for updates"));
+        assert!(status.contains("(cached)"));
+        assert!(!status.contains("up to date"));
+    }
+
+    #[test]
+    fn explicit_check_respects_disabled_setting() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = test_paths(&temp);
+        paths.ensure_dirs().unwrap();
+        fs::write(&paths.update_notice_disabled_file, b"disabled\n").unwrap();
+        let status =
+            checked_version_status(&paths, false, false, || panic!("disabled check fetched"));
+        assert!(status.contains("Update checks are off"));
+    }
+
+    #[test]
+    fn explicit_check_reports_server_result_even_when_cache_cannot_be_written() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = test_paths(&temp);
+        paths.ensure_dirs().unwrap();
+        fs::create_dir(&paths.update_cache_file).unwrap();
+        let status = checked_version_status(&paths, false, false, || Ok("9.9.9".into()));
+        assert!(status.contains("Update 9.9.9 available"));
+        assert!(paths.update_cache_file.is_dir());
+    }
 
     fn test_paths(temp: &tempfile::TempDir) -> AppPaths {
         AppPaths {

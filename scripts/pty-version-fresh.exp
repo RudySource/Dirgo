@@ -1,0 +1,29 @@
+#!/usr/bin/expect -f
+set timeout 8
+log_user 1
+set sandbox [exec mktemp -d]
+file mkdir "$sandbox/bin" "$sandbox/cache/dirgo"
+set env(XDG_CACHE_HOME) "$sandbox/cache"
+set env(XDG_STATE_HOME) "$sandbox/state"
+set env(XDG_CONFIG_HOME) "$sandbox/config"
+set env(PATH) "$sandbox/bin:$env(PATH)"
+set env(NO_COLOR) 1
+set env(TERM) dumb
+unset -nocomplain env(DGO_DISABLE_UPDATE_CHECK)
+set f [open "$sandbox/bin/curl" w]
+puts $f {#!/bin/sh}
+puts $f {printf '%s\n' '{"tag_name":"v9.9.9"}'}
+close $f
+file attributes "$sandbox/bin/curl" -permissions 0755
+set f [open "$sandbox/cache/dirgo/update.json" w]
+puts $f "{\"checked_at\":[clock seconds],\"latest_version\":\"$env(DGO_VERSION)\"}"
+close $f
+spawn -noecho $env(DGO_BIN) --version
+expect {
+    -exact "Update 9.9.9 available" {}
+    eof {puts stderr "FAIL: fresh cached current version suppressed live update"; exit 1}
+    timeout {puts stderr "FAIL: update check did not finish"; exit 1}
+}
+expect eof
+if {[lindex [wait] 3] != 0} {exit 1}
+puts "VERSION-FRESH:ok"

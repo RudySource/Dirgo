@@ -1,10 +1,11 @@
 # Update state architecture
 
-Dirgo answers update questions from local state first. An interactive
-`dgo --version` never waits for GitHub: it prints the installed version, reads
-the last valid release response, tries to start one detached checker when due,
-and renders what actually happened. Redirected version output returns before
-path discovery and remains exactly one line.
+Interactive `dgo --version` prints and flushes the installed version, then
+checks GitHub on every call. It bypasses background freshness, leases, and
+backoff without waiting for their locks. A successful response is rendered
+even if caching fails. Failed requests explicitly label any retained knowledge
+as cached and never claim the installed version is current. Redirected output
+returns before path discovery and remains exactly one line.
 
 ## Independent facts
 
@@ -44,7 +45,7 @@ settings.
 
 ## Scheduling and failure behavior
 
-A successful response remains fresh for 24 hours. When it is stale or missing,
+For background navigation checks, a response remains fresh for 24 hours. When it is stale or missing,
 the foreground process claims a five-minute attempt lease and starts the hidden
 checker with null standard streams. Other simultaneous processes observe the
 lease and do not create another child.

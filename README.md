@@ -226,9 +226,9 @@ dgo library/adobe/cep/extensions
 ```
 
 `dgo --version` keeps its stable one-line output in pipes. In an interactive
-terminal it shows the cached update state immediately and, when due, starts or
-observes one detached refresh without waiting for the network. A stale cached
-newer release remains visible while Dirgo checks again.
+terminal it prints the installed version immediately, then checks GitHub for
+the latest stable release. If the request fails, the result is explicitly
+unavailable and any last known release is labelled as cached.
 Disable or restore update notices with `dgo update-notifications off|on`.
 
 #### New in 0.8 · Workflow Intelligence
@@ -435,7 +435,7 @@ dgo workflows export            export private path-redacted JSONL
 dgo --update                   install the latest stable release
 dgo update-notifications off   disable new-version notices
 dgo update-notifications on    enable new-version notices
-dgo --version                  show version and interactive cached update state
+dgo --version                  show version and check for updates in a terminal
 ```
 
 Run `dgo --help` or `dgo <command> --help` for the complete interface.
@@ -545,8 +545,8 @@ against your own index.
 ## Privacy and security
 
 - No telemetry, analytics, account, or cloud sync.
-- Search, ranking, Palette filtering, and `dgo --version` never wait for the network.
-- A successful release response stays fresh for 24 hours; failed checks use short bounded retry delays, and update notifications can be disabled completely.
+- Search, ranking, Palette filtering, and redirected `dgo --version` never wait for the network.
+- Interactive `dgo --version` checks GitHub on each call. Background notices cache successful responses for 24 hours and use bounded retry delays; update checks can be disabled completely.
 - Suggestions and command-history collection are independently disabled by default.
 - Context history stays local, project-scoped, bounded, and inspectable; likely secrets are never stored.
 - History exports omit filesystem paths by default and never overwrite without `--force`.
@@ -565,7 +565,7 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.8.0** | Current stable release | Local bounded Workflow Intelligence, `NEXT` suggestions, saved 2–8 step workflows, Palette preview, management CLI, private redacted export, and reliable update scheduling. |
+| **0.8.1** | Current stable release | Fresh interactive update checks, plus local bounded Workflow Intelligence, `NEXT` suggestions, saved workflows, and Workspace Palette. |
 | **0.7.1** | Previous stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 

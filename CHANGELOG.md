@@ -4,6 +4,12 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-06
+
+### Fixed
+
+- Check GitHub during each interactive `dgo --version` call instead of treating a cached result as a fresh confirmation. Failed checks explicitly label cached information; redirected version output remains one line without network access.
+
 ## [0.8.0] - 2026-09-04
 
 ### Added
