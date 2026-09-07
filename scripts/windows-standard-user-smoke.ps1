@@ -22,6 +22,18 @@ try {
     @'
 $ErrorActionPreference = 'Stop'
 try {
+    if ((Get-Command dgo).CommandType -ne 'Function') { throw 'PowerShell profile did not load the Dirgo wrapper' }
+    $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
+    if ($handler.Function -ne 'DirgoSuggestion') { throw 'PowerShell profile did not load the suggestion handler' }
+    Set-Location "$PSScriptRoot/filesystem"
+    $replacement = Invoke-DirgoSuggestion -BeforeCursor 'Set-Location pun' -AfterCursor ''
+    if (-not $replacement.EndsWith("$(Join-Path 'Projects' 'Punk')'")) { throw "Installed suggestion returned: $replacement" }
+    'PROFILE-SUGGESTIONS:ok' | Set-Content "$PSScriptRoot/profile-suggestions.txt"
+} catch { Write-Error $_; exit 1 }
+'@ | Set-Content "$root/profile-check.ps1" -Encoding utf8
+    @'
+$ErrorActionPreference = 'Stop'
+try {
     # Start-Process inherits the PowerShell 7 runner's module search path.
     $env:PSModulePath = "$PSHOME\Modules;${env:ProgramFiles}\WindowsPowerShell\Modules"
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -47,18 +59,6 @@ try {
     New-Item -ItemType Directory (Join-Path $fixtureRoot 'Projects/Punk') -Force | Out-Null
     & "$env:DIRGO_INSTALL_DIR/dgo.exe" roots add $fixtureRoot | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the installed suggestion fixture' }
-    @'
-$ErrorActionPreference = 'Stop'
-try {
-    if ((Get-Command dgo).CommandType -ne 'Function') { throw 'PowerShell profile did not load the Dirgo wrapper' }
-    $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
-    if ($handler.Function -ne 'DirgoSuggestion') { throw 'PowerShell profile did not load the suggestion handler' }
-    Set-Location "$PSScriptRoot/filesystem"
-    $replacement = Invoke-DirgoSuggestion -BeforeCursor 'Set-Location pun' -AfterCursor ''
-    if (-not $replacement.EndsWith("$(Join-Path 'Projects' 'Punk')'")) { throw "Installed suggestion returned: $replacement" }
-    'PROFILE-SUGGESTIONS:ok' | Set-Content "$PSScriptRoot/profile-suggestions.txt"
-} catch { Write-Error $_; exit 1 }
-'@ | Set-Content "$PSScriptRoot/profile-check.ps1" -Encoding utf8
     $pwsh = Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe'
     & $pwsh -NoLogo -NonInteractive -File "$PSScriptRoot/profile-check.ps1"
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$PSScriptRoot/profile-suggestions.txt")) {
