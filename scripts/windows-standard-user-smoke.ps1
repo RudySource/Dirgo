@@ -22,10 +22,6 @@ try {
     @'
 $ErrorActionPreference = 'Stop'
 try {
-    Write-Output "PROFILE-DIAG:home=$HOME"
-    Write-Output "PROFILE-DIAG:path=$PROFILE"
-    Write-Output "PROFILE-DIAG:exists=$(Test-Path -LiteralPath $PROFILE)"
-    if (Test-Path -LiteralPath $PROFILE) { Get-Content -LiteralPath $PROFILE }
     if ((Get-Command dgo).CommandType -ne 'Function') { throw 'PowerShell profile did not load the Dirgo wrapper' }
     $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
     if ($handler.Function -ne 'DirgoSuggestion') { throw 'PowerShell profile did not load the suggestion handler' }
@@ -42,6 +38,12 @@ try {
     $env:PSModulePath = "$PSHOME\Modules;${env:ProgramFiles}\WindowsPowerShell\Modules"
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Test must run without administrator privileges' }
+    $accountName = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1]
+    $userHome = Join-Path $env:SystemDrive "Users/$accountName"
+    $env:USERPROFILE = $userHome
+    $env:HOME = $userHome
+    $env:APPDATA = Join-Path $userHome 'AppData/Roaming'
+    $env:LOCALAPPDATA = Join-Path $userHome 'AppData/Local'
     $env:TEMP = Join-Path $PSScriptRoot 'temp'
     $env:TMP = $env:TEMP
     New-Item -ItemType Directory $env:TEMP | Out-Null
