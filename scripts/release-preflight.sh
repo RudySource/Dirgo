@@ -95,6 +95,7 @@ for required_file in \
   powershell/DirgoPredictor/DirgoPredictor.csproj \
   powershell/DirgoPredictor/DirgoPredictor.psd1 \
   powershell/DirgoPredictor/packages.lock.json \
+  build.rs scripts/windows-manifest-smoke.ps1 scripts/windows-standard-user-smoke.ps1 \
   src/lib.rs src/main.rs; do
   if ! grep -Fxq "$required_file" "$package_files"; then
     printf 'Release archive is missing required file: %s\n' "$required_file" >&2

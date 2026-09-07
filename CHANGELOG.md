@@ -4,6 +4,13 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-07
+
+### Fixed
+
+- Declare Windows CLI execution as `asInvoker` and use a neutral staging filename during installation to avoid unintended elevation requests.
+- Stop Windows installation when the downloaded binary fails its startup check, preserving the existing executable.
+
 ## [0.8.1] - 2026-09-06
 
 ### Fixed

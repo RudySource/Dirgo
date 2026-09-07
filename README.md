@@ -565,7 +565,7 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.8.1** | Current stable release | Fresh interactive update checks, plus local bounded Workflow Intelligence, `NEXT` suggestions, saved workflows, and Workspace Palette. |
+| **0.8.2** | Current stable release | Windows user-level installation, fresh interactive update checks, local Workflow Intelligence, and Workspace Palette. |
 | **0.7.1** | Previous stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |
 

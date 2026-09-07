@@ -61,9 +61,10 @@ try {
 
     New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
     $installedBinary = Join-Path $installDirectory 'dgo.exe'
-    $stagedBinary = Join-Path $installDirectory ('.dgo-install-' + [guid]::NewGuid().ToString('N') + '.exe')
+    $stagedBinary = Join-Path $installDirectory ('.dgo-stage-' + [guid]::NewGuid().ToString('N') + '.exe')
     Copy-Item -LiteralPath $binary.FullName -Destination $stagedBinary
     & $stagedBinary --version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Downloaded binary failed its startup check (exit $LASTEXITCODE); existing installation was not replaced." }
     Move-Item -LiteralPath $stagedBinary -Destination $installedBinary -Force
     $installedModule = Join-Path $installDirectory "DirgoPredictor/$moduleVersion"
     New-Item -ItemType Directory -Force -Path $installedModule | Out-Null
