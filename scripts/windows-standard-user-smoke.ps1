@@ -7,6 +7,7 @@ New-Item -ItemType Directory $root | Out-Null
 try {
     New-LocalUser -Name $name -Password $password | Out-Null
     $identity = "$env:COMPUTERNAME\$name"
+    Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $name
     & icacls.exe $root /grant "${identity}:(OI)(CI)M" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not grant access to isolated test directory' }
     $assets = Join-Path $root 'assets'
