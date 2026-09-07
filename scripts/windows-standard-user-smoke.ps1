@@ -31,10 +31,18 @@ try {
     New-Item -ItemType Directory $env:TEMP | Out-Null
     $env:DIRGO_DOWNLOAD_BASE = ([uri](Join-Path $PSScriptRoot 'assets')).AbsoluteUri.TrimEnd('/')
     $env:DIRGO_INSTALL_DIR = Join-Path $PSScriptRoot 'destination'
-    $env:DIRGO_SETUP = 'skip'
+    $env:DIRGO_SETUP = 'yes'
     & "$PSScriptRoot/installer.ps1"
     $version = & "$env:DIRGO_INSTALL_DIR/dgo.exe" --version
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^dgo \d+\.\d+\.\d+$') { throw 'Installed binary did not start' }
+    $suggestionStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" suggestions status | Out-String
+    if ($LASTEXITCODE -ne 0 -or $suggestionStatus -notmatch '(?m)^Suggestions\s+enabled$') {
+        throw 'Installer did not enable suggestions when setup was accepted'
+    }
+    $setupStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" setup --shell powershell --dry-run | Out-String
+    if ($LASTEXITCODE -ne 0 -or $setupStatus -notmatch 'Dirgo is already connected') {
+        throw 'Installer did not connect the PowerShell profile when setup was accepted'
+    }
     $before = (Get-FileHash "$env:DIRGO_INSTALL_DIR/dgo.exe").Hash
     Copy-Item "$env:SystemRoot/System32/whoami.exe" "$PSScriptRoot/stage/dirgo/dgo.exe" -Force
     $archive = "$PSScriptRoot/assets/dirgo-x86_64-pc-windows-msvc.zip"
