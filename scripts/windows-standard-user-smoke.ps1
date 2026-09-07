@@ -24,6 +24,9 @@ $ErrorActionPreference = 'Stop'
 try {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Test must run without administrator privileges' }
+    $env:TEMP = Join-Path $PSScriptRoot 'temp'
+    $env:TMP = $env:TEMP
+    New-Item -ItemType Directory $env:TEMP | Out-Null
     $env:DIRGO_DOWNLOAD_BASE = ([uri](Join-Path $PSScriptRoot 'assets')).AbsoluteUri.TrimEnd('/')
     $env:DIRGO_INSTALL_DIR = Join-Path $PSScriptRoot 'destination'
     $env:DIRGO_SETUP = 'skip'
