@@ -22,6 +22,8 @@ try {
     @'
 $ErrorActionPreference = 'Stop'
 try {
+    # Start-Process inherits the PowerShell 7 runner's module search path.
+    $env:PSModulePath = "$PSHOME\Modules;${env:ProgramFiles}\WindowsPowerShell\Modules"
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Test must run without administrator privileges' }
     $env:TEMP = Join-Path $PSScriptRoot 'temp'
