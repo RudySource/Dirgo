@@ -10,7 +10,7 @@ $stagedBinary = $null
 $stagedModuleFiles = @()
 
 function Write-Success([string]$Message) {
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Save-Download([string]$Uri, [string]$Destination) {
