@@ -48,7 +48,7 @@ try {
     $version = & "$env:DIRGO_INSTALL_DIR/dgo.exe" --version
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^dgo \d+\.\d+\.\d+$') { throw 'Installed binary did not start' }
     $suggestionStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" suggestions status | Out-String
-    if ($LASTEXITCODE -ne 0 -or $suggestionStatus -notmatch '(?m)^Suggestions\s+enabled$') {
+    if ($LASTEXITCODE -ne 0 -or $suggestionStatus -notmatch '(?m)^Suggestions\s+enabled\r?$') {
         throw 'Installer did not enable suggestions when setup was accepted'
     }
     $setupStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" setup --shell powershell --dry-run | Out-String
