@@ -1,0 +1,97 @@
+param([Parameter(Mandatory)][string]$DgoBin)
+$ErrorActionPreference = 'Stop'
+$name = 'dgo' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$root = Join-Path $env:PUBLIC $name
+$password = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + '!aA9') -AsPlainText -Force
+New-Item -ItemType Directory $root | Out-Null
+try {
+    New-LocalUser -Name $name -Password $password | Out-Null
+    $identity = "$env:COMPUTERNAME\$name"
+    Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $name
+    & icacls.exe $root /grant "${identity}:(OI)(CI)M" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not grant access to isolated test directory' }
+    $assets = Join-Path $root 'assets'
+    $stage = Join-Path $root 'stage/dirgo'
+    New-Item -ItemType Directory $assets, $stage | Out-Null
+    Copy-Item $DgoBin "$stage/dgo.exe"
+    Copy-Item (Join-Path (Split-Path $DgoBin) 'DirgoPredictor') "$stage/DirgoPredictor" -Recurse
+    Compress-Archive -Path $stage -DestinationPath "$assets/dirgo-x86_64-pc-windows-msvc.zip"
+    $hash = (Get-FileHash "$assets/dirgo-x86_64-pc-windows-msvc.zip" -Algorithm SHA256).Hash
+    "$hash  dirgo-x86_64-pc-windows-msvc.zip" | Set-Content "$assets/SHA256SUMS" -Encoding ascii
+    Copy-Item install/dirgo-installer.ps1 "$root/installer.ps1"
+    @'
+$ErrorActionPreference = 'Stop'
+try {
+    if ((Get-Command dgo).CommandType -ne 'Function') { throw 'PowerShell profile did not load the Dirgo wrapper' }
+    $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
+    if ($handler.Function -ne 'DirgoSuggestion') { throw 'PowerShell profile did not load the suggestion handler' }
+    Set-Location "$PSScriptRoot/filesystem"
+    $replacement = Invoke-DirgoSuggestion -BeforeCursor 'Set-Location pun' -AfterCursor ''
+    if (-not $replacement.EndsWith("$(Join-Path 'Projects' 'Punk')'")) { throw "Installed suggestion returned: $replacement" }
+    'PROFILE-SUGGESTIONS:ok' | Set-Content "$PSScriptRoot/profile-suggestions.txt"
+} catch { Write-Error $_; exit 1 }
+'@ | Set-Content "$root/profile-check.ps1" -Encoding utf8
+    @'
+$ErrorActionPreference = 'Stop'
+try {
+    # Start-Process inherits the PowerShell 7 runner's module search path.
+    $env:PSModulePath = "$PSHOME\Modules;${env:ProgramFiles}\WindowsPowerShell\Modules"
+    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Test must run without administrator privileges' }
+    $accountName = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1]
+    $userHome = Join-Path $env:SystemDrive "Users/$accountName"
+    $env:USERPROFILE = $userHome
+    $env:HOME = $userHome
+    $env:APPDATA = Join-Path $userHome 'AppData/Roaming'
+    $env:LOCALAPPDATA = Join-Path $userHome 'AppData/Local'
+    $env:TEMP = Join-Path $PSScriptRoot 'temp'
+    $env:TMP = $env:TEMP
+    New-Item -ItemType Directory $env:TEMP | Out-Null
+    $env:DIRGO_DOWNLOAD_BASE = ([uri](Join-Path $PSScriptRoot 'assets')).AbsoluteUri.TrimEnd('/')
+    $env:DIRGO_INSTALL_DIR = Join-Path $PSScriptRoot 'destination'
+    $env:DIRGO_SETUP = 'yes'
+    & "$PSScriptRoot/installer.ps1"
+    $version = & "$env:DIRGO_INSTALL_DIR/dgo.exe" --version
+    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^dgo \d+\.\d+\.\d+$') { throw 'Installed binary did not start' }
+    $suggestionStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" suggestions status | Out-String
+    if ($LASTEXITCODE -ne 0 -or $suggestionStatus -notmatch '(?m)^Suggestions\s+enabled\r?$') {
+        throw 'Installer did not enable suggestions when setup was accepted'
+    }
+    $setupStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" setup --shell powershell --dry-run | Out-String
+    if ($LASTEXITCODE -ne 0 -or $setupStatus -notmatch 'Dirgo is already connected') {
+        throw 'Installer did not connect the PowerShell profile when setup was accepted'
+    }
+    $fixtureRoot = Join-Path $PSScriptRoot 'filesystem'
+    New-Item -ItemType Directory (Join-Path $fixtureRoot 'Projects/Punk') -Force | Out-Null
+    & "$env:DIRGO_INSTALL_DIR/dgo.exe" roots add $fixtureRoot | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the installed suggestion fixture' }
+    $pwsh = Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe'
+    & $pwsh -NoLogo -NonInteractive -File "$PSScriptRoot/profile-check.ps1"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$PSScriptRoot/profile-suggestions.txt")) {
+        throw 'Installed suggestions did not work from a fresh PowerShell 7 profile'
+    }
+    $before = (Get-FileHash "$env:DIRGO_INSTALL_DIR/dgo.exe").Hash
+    Copy-Item "$env:SystemRoot/System32/whoami.exe" "$PSScriptRoot/stage/dirgo/dgo.exe" -Force
+    $archive = "$PSScriptRoot/assets/dirgo-x86_64-pc-windows-msvc.zip"
+    Compress-Archive -Path "$PSScriptRoot/stage/dirgo" -DestinationPath $archive -Force
+    $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+    "$hash  dirgo-x86_64-pc-windows-msvc.zip" | Set-Content "$PSScriptRoot/assets/SHA256SUMS" -Encoding ascii
+    $ErrorActionPreference = 'Continue'
+    & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PSScriptRoot/installer.ps1" 2>&1 | Out-Null
+    $failedExit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($failedExit -eq 0) { throw 'Installer accepted a binary that rejects --version' }
+    if ((Get-FileHash "$env:DIRGO_INSTALL_DIR/dgo.exe").Hash -ne $before) { throw 'Failed installation replaced the existing binary' }
+    $version | Set-Content "$PSScriptRoot/success.txt"
+} catch { Write-Error $_; exit 1 }
+'@ | Set-Content "$root/probe.ps1" -Encoding utf8
+    $credential = New-Object Management.Automation.PSCredential($identity, $password)
+    $process = Start-Process "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -Credential $credential -LoadUserProfile -WorkingDirectory $root -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "$root/probe.ps1") -RedirectStandardOutput "$root/stdout.txt" -RedirectStandardError "$root/stderr.txt" -PassThru
+    if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Standard-user installer timed out' }
+    Get-Content "$root/stdout.txt", "$root/stderr.txt"
+    if ($process.ExitCode -ne 0 -or -not (Test-Path "$root/success.txt")) { throw 'Standard-user installation failed' }
+    Write-Output 'WINDOWS-INSTALL:standard-user:ok'
+} finally {
+    Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $root -Recurse -Force
+}

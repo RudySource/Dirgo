@@ -53,6 +53,11 @@ jobs:
       - run: cargo test --locked --target ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }} --bin dgo
 
+      - name: Verify Windows user-level execution manifest
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: ./scripts/windows-manifest-smoke.ps1 -DgoBin target/x86_64-pc-windows-msvc/release/dgo.exe
+
       - name: Build PowerShell predictor
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh

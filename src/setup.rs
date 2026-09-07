@@ -241,7 +241,7 @@ fn integration_block(shell: Shell) -> Result<String> {
 
 fn effective_binary_dir() -> Result<PathBuf> {
     let current = env::current_exe().map_err(|error| DirgoError::io("dgo", error))?;
-    let current = current.canonicalize().unwrap_or(current);
+    let current = shell_compatible_path(current.canonicalize().unwrap_or(current));
     let executable = if cfg!(windows) { "dgo.exe" } else { "dgo" };
     for directory in env::split_paths(&env::var_os("PATH").unwrap_or_default()) {
         if directory.as_os_str().is_empty() || !directory.is_absolute() {
@@ -249,7 +249,7 @@ fn effective_binary_dir() -> Result<PathBuf> {
         }
         let candidate = directory.join(executable);
         if candidate.is_file() {
-            let candidate = candidate.canonicalize().unwrap_or(candidate);
+            let candidate = shell_compatible_path(candidate.canonicalize().unwrap_or(candidate));
             if candidate == current {
                 return Ok(directory);
             }
@@ -258,6 +258,39 @@ fn effective_binary_dir() -> Result<PathBuf> {
     current.parent().map(Path::to_path_buf).ok_or_else(|| {
         DirgoError::User("Dirgo could not determine its installation directory".into())
     })
+}
+
+fn shell_compatible_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+
+        let mut components = path.components();
+        let Some(Component::Prefix(prefix)) = components.next() else {
+            return path;
+        };
+        let mut normalized = match prefix.kind() {
+            Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:\\", char::from(letter))),
+            Prefix::VerbatimUNC(server, share) => {
+                let mut normalized = PathBuf::from(r"\\");
+                normalized.push(server);
+                normalized.push(share);
+                normalized
+            }
+            _ => return path,
+        };
+        if let Some(component) = components.next()
+            && !matches!(component, Component::RootDir)
+        {
+            normalized.push(component.as_os_str());
+        }
+        normalized.extend(components);
+        normalized
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
 }
 
 fn upsert_managed_block(old: &str, block: &str) -> Result<String> {
@@ -517,6 +550,19 @@ mod tests {
         assert!(!block.contains("Invoke-Expression"));
         assert_eq!(block.matches(START_MARKER).count(), 1);
         assert_eq!(block.matches(END_MARKER).count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn removes_windows_verbatim_prefix_before_writing_shell_path() {
+        assert_eq!(
+            shell_compatible_path(PathBuf::from(r"\\?\C:\tools\dirgo")),
+            PathBuf::from(r"C:\tools\dirgo")
+        );
+        assert_eq!(
+            shell_compatible_path(PathBuf::from(r"\\?\UNC\server\share\dirgo")),
+            PathBuf::from(r"\\server\share\dirgo")
+        );
     }
 
     #[cfg(unix)]
