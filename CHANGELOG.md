@@ -11,6 +11,7 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 - Declare Windows CLI execution as `asInvoker` and use a neutral staging filename during installation to avoid unintended elevation requests.
 - Stop Windows installation when the downloaded binary fails its startup check, preserving the existing executable.
 - Keep the PowerShell installer ASCII-compatible so Windows PowerShell 5.1 can also run it from a saved file.
+- Make accepted Windows setup connect the PowerShell profile and enable local suggestions, with an installed-profile smoke test under a standard user account.
 
 ## [0.8.1] - 2026-09-06
 

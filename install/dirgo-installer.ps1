@@ -97,7 +97,23 @@ try {
         Write-Success 'Already available on your user PATH'
     }
 
-    Write-Host "`nReady. Open a new terminal and run dgo."
+    $setupAnswer = if ($env:DIRGO_SETUP -eq 'yes') {
+        'yes'
+    } elseif ($env:DIRGO_SETUP -eq 'skip') {
+        'no'
+    } else {
+        Read-Host "`nConnect PowerShell 7+ and enable private local suggestions? [Y/n]"
+    }
+    if ([string]::IsNullOrWhiteSpace($setupAnswer) -or $setupAnswer -match '^(?i:y|yes)$') {
+        & $installedBinary --no-unicode setup --shell powershell --yes
+        if ($LASTEXITCODE -ne 0) { throw 'Dirgo was installed, but PowerShell setup failed.' }
+        & $installedBinary suggestions enable
+        if ($LASTEXITCODE -ne 0) { throw 'Dirgo was installed, but suggestions could not be enabled.' }
+        Write-Success 'PowerShell integration and suggestions enabled'
+        Write-Host "`nReady. Open PowerShell 7+ and start typing. Press Ctrl+F to insert a suggestion."
+    } else {
+        Write-Host "`nShell setup skipped. Run: dgo setup; dgo suggestions enable"
+    }
 } catch {
     Write-Error "Dirgo installer: $($_.Exception.Message)"
     exit 1

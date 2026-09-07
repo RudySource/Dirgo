@@ -311,7 +311,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod 'h
 ```
 
 The installer verifies SHA-256, installs `dgo.exe` with its predictor, and asks
-before changing the user `PATH`. Open PowerShell 7+ and run `dgo setup`.
+before changing the user `PATH` or connecting PowerShell. Accepting shell setup
+also enables private local suggestions. Open PowerShell 7+ and start typing;
+press `Ctrl+F` to insert a suggestion.
 
 ### Scoop · Windows
 
