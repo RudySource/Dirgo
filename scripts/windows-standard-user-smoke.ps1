@@ -22,6 +22,10 @@ try {
     @'
 $ErrorActionPreference = 'Stop'
 try {
+    Write-Output "PROFILE-DIAG:home=$HOME"
+    Write-Output "PROFILE-DIAG:path=$PROFILE"
+    Write-Output "PROFILE-DIAG:exists=$(Test-Path -LiteralPath $PROFILE)"
+    if (Test-Path -LiteralPath $PROFILE) { Get-Content -LiteralPath $PROFILE }
     if ((Get-Command dgo).CommandType -ne 'Function') { throw 'PowerShell profile did not load the Dirgo wrapper' }
     $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
     if ($handler.Function -ne 'DirgoSuggestion') { throw 'PowerShell profile did not load the suggestion handler' }
