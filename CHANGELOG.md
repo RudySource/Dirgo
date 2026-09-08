@@ -4,6 +4,13 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-08
+
+### Fixed
+
+- Ship the Windows executable with a statically linked C runtime so clean Windows 10 and 11 systems can start Dirgo without a separately installed Visual C++ Redistributable.
+- Reject Windows release binaries that import external MSVC runtime DLLs before installer and release packaging tests can pass.
+
 ## [0.8.2] - 2026-09-07
 
 ### Fixed

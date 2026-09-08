@@ -1,5 +1,14 @@
 param([Parameter(Mandatory)][string]$DgoBin)
 $ErrorActionPreference = 'Stop'
+$resolvedDgoBin = (Resolve-Path $DgoBin).Path
+$binaryText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($resolvedDgoBin))
+$externalRuntimePattern = '(?i)\b(?:vcruntime\d+(?:_\d+)?|msvcp\d+|api-ms-win-crt-[a-z0-9-]+)\.dll\b'
+$externalRuntimes = @([regex]::Matches($binaryText, $externalRuntimePattern) | ForEach-Object Value | Sort-Object -Unique)
+if ($externalRuntimes.Count -gt 0) {
+    throw "Executable dynamically imports MSVC/UCRT components: $($externalRuntimes -join ', ')"
+}
+Write-Output 'WINDOWS-RUNTIME:static-crt:ok'
+
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -14,7 +23,7 @@ public static class ManifestResource {
     [DllImport("kernel32.dll")] public static extern bool FreeLibrary(IntPtr module);
 }
 '@
-$module = [ManifestResource]::LoadLibraryEx((Resolve-Path $DgoBin).Path, [IntPtr]::Zero, 2)
+$module = [ManifestResource]::LoadLibraryEx($resolvedDgoBin, [IntPtr]::Zero, 2)
 if ($module -eq [IntPtr]::Zero) { throw 'Could not open executable resources' }
 try {
     $resource = [ManifestResource]::FindResource($module, [IntPtr]1, [IntPtr]24)
