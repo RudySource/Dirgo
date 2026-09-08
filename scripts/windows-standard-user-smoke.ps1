@@ -50,6 +50,9 @@ try {
     $env:DIRGO_DOWNLOAD_BASE = ([uri](Join-Path $PSScriptRoot 'assets')).AbsoluteUri.TrimEnd('/')
     $env:DIRGO_INSTALL_DIR = Join-Path $PSScriptRoot 'destination'
     $env:DIRGO_SETUP = 'yes'
+    $profilePath = Join-Path $userHome 'Documents/PowerShell/Microsoft.PowerShell_profile.ps1'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $profilePath) | Out-Null
+    '# existing user profile content' | Set-Content $profilePath -Encoding utf8
     & "$PSScriptRoot/installer.ps1"
     $version = & "$env:DIRGO_INSTALL_DIR/dgo.exe" --version
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^dgo \d+\.\d+\.\d+$') { throw 'Installed binary did not start' }
@@ -60,6 +63,22 @@ try {
     $setupStatus = & "$env:DIRGO_INSTALL_DIR/dgo.exe" setup --shell powershell --dry-run | Out-String
     if ($LASTEXITCODE -ne 0 -or $setupStatus -notmatch 'Dirgo is already connected') {
         throw 'Installer did not connect the PowerShell profile when setup was accepted'
+    }
+    $profileContents = Get-Content $profilePath -Raw
+    if ($profileContents -notmatch '(?m)^# existing user profile content\r?$') {
+        throw 'Installer did not preserve the existing PowerShell profile'
+    }
+    if ([regex]::Matches($profileContents, '(?m)^# >>> dirgo setup >>>\r?$').Count -ne 1) {
+        throw 'Installer did not create exactly one managed PowerShell block'
+    }
+    & "$PSScriptRoot/installer.ps1"
+    if ($LASTEXITCODE -ne 0) { throw 'Installer could not replace an existing Dirgo installation' }
+    $profileContents = Get-Content $profilePath -Raw
+    if ([regex]::Matches($profileContents, '(?m)^# >>> dirgo setup >>>\r?$').Count -ne 1) {
+        throw 'Repeated installation duplicated the managed PowerShell block'
+    }
+    if ($profileContents -notmatch '(?m)^# existing user profile content\r?$') {
+        throw 'Repeated installation removed existing PowerShell profile content'
     }
     $fixtureRoot = Join-Path $PSScriptRoot 'filesystem'
     New-Item -ItemType Directory (Join-Path $fixtureRoot 'Projects/Punk') -Force | Out-Null

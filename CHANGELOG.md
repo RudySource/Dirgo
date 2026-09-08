@@ -4,6 +4,16 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-08
+
+### Fixed
+
+- Ship the Windows executable with a statically linked C runtime so clean Windows 10 and 11 systems can start Dirgo without a separately installed Visual C++ Redistributable.
+- Reject Windows release binaries that import external MSVC runtime DLLs before installer and release packaging tests can pass.
+- Keep direct Windows updates non-interactive so a hidden installer cannot wait for an invisible setup prompt.
+- Resolve `.cmd` and `.bat` editor shims on Windows so auto-detection works with standard VS Code and Cursor command-line installations.
+- Exercise repeated standard-user installation against an existing PowerShell profile and reject profile loss or duplicate managed blocks.
+
 ## [0.8.2] - 2026-09-07
 
 ### Fixed
