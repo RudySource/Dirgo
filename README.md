@@ -138,7 +138,7 @@ match the installed binary.
 </p>
 
 - **Zsh:** responsive paged panel with descriptions and `Tab` insertion.
-- **PowerShell 7.4.x:** native PSReadLine ListView prediction.
+- **PowerShell 7.4+:** native PSReadLine ListView prediction.
 - **Fish and Bash 4+:** enriched native `Tab` completion.
 - **Every supported shell:** `Ctrl+F` inserts the best result and `Shift+Tab`
   opens the explicit source-labelled picker.
@@ -526,7 +526,7 @@ each keystroke.
 | macOS Apple Silicon | Homebrew, installer, archive | Zsh, Bash, Fish |
 | macOS Intel | Installer, archive | Zsh, Bash, Fish |
 | Linux x86_64 GNU | Installer, archive; glibc 2.35+ | Zsh, Bash, Fish |
-| Windows x86_64 MSVC | PowerShell installer, Scoop, archive | PowerShell 7+; native predictor on 7.4.x |
+| Windows x86_64 MSVC | PowerShell installer, Scoop, archive | PowerShell 7+; native predictor on 7.4+ |
 
 WSL uses its Zsh, Bash, or Fish adapter.
 
@@ -567,7 +567,8 @@ Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 | Version | Status | User-visible scope |
 | --- | --- | --- |
-| **0.8.3** | Current stable release | Self-contained Windows installation, fresh interactive update checks, local Workflow Intelligence, and Workspace Palette. |
+| **0.8.4** | Current stable release | Native suggestions on current PowerShell 7 releases, including 7.5 and 7.6. |
+| **0.8.3** | Previous stable release | Self-contained Windows installation, fresh interactive update checks, local Workflow Intelligence, and Workspace Palette. |
 | **0.8.2** | Previous stable release | Windows user-level installation, fresh interactive update checks, local Workflow Intelligence, and Workspace Palette. |
 | **0.7.1** | Previous stable release | Workspace Palette, focused roots, ordered path search, bounded lazy previews, safe source switching, cached update awareness, and easier Windows installation. |
 | **0.6.0** | Previous stable release | Opt-in completed-command context, schema v2 migration, project/success-aware ranking, scoped inspection, clearing, and privacy-preserving export. |

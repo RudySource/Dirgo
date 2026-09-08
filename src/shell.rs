@@ -1316,7 +1316,7 @@ if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
     $nativeCompletionsEnabled = $LASTEXITCODE -eq 0
     if ($nativeCompletionsEnabled -and
         $PSVersionTable.PSVersion.Major -eq 7 -and
-        $PSVersionTable.PSVersion.Minor -eq 4 -and
+        $PSVersionTable.PSVersion -ge [version]'7.4.0' -and
         $psReadLineVersion -ge [version]'2.2.2' -and
         (Test-Path -LiteralPath $predictorManifest)) {
         Import-Module $predictorManifest -ErrorAction SilentlyContinue
@@ -1572,6 +1572,14 @@ mod tests {
         assert!(script.contains("Set-PSReadLineOption -PredictionViewStyle ListView"));
         assert!(script.contains("Set-PSReadLineKeyHandler -Chord Ctrl+f"));
         assert!(!script.contains("AcceptLine"));
+    }
+
+    #[test]
+    fn powershell_predictor_accepts_supported_7x_versions_after_7_4() {
+        let script = integration(Shell::PowerShell);
+        assert!(script.contains("$PSVersionTable.PSVersion.Major -eq 7"));
+        assert!(script.contains("$PSVersionTable.PSVersion -ge [version]'7.4.0'"));
+        assert!(!script.contains("$PSVersionTable.PSVersion.Minor -eq 4"));
     }
 
     #[test]

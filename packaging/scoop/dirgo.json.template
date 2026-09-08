@@ -5,7 +5,7 @@
     "license": "MIT",
     "notes": [
         "Run 'dgo setup' from PowerShell 7+ to enable parent-shell navigation and safe suggestions.",
-        "Native inline and list prediction is available on PowerShell 7.4.x with PSReadLine 2.2.2+."
+        "Native inline and list prediction is available on PowerShell 7.4+ with PSReadLine 2.2.2+."
     ],
     "architecture": {
         "64bit": {

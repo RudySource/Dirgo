@@ -4,6 +4,13 @@ All notable changes follow Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-09-09
+
+### Fixed
+
+- Enable the native Dirgo predictor on supported PowerShell releases newer than 7.4, including PowerShell 7.5 and 7.6, instead of rejecting every minor version other than 7.4.
+- Exercise the native prediction path on any PowerShell 7.4+ Windows runner so future LTS upgrades cannot silently disable suggestions.
+
 ## [0.8.3] - 2026-09-08
 
 ### Fixed
