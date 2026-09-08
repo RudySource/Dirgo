@@ -15,7 +15,7 @@ const RELEASE_API: &str = "https://api.github.com/repos/RudySource/Dirgo/release
 #[cfg(unix)]
 const UNIX_INSTALLER: &str =
     "https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.sh";
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const WINDOWS_INSTALLER: &str =
     "https://github.com/RudySource/Dirgo/releases/latest/download/dirgo-installer.ps1";
 const CHECK_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
@@ -735,11 +735,7 @@ fn run_direct_installer(executable: &Path) -> std::io::Result<Option<std::proces
     use std::os::windows::process::CommandExt;
 
     let install_dir = executable.parent().unwrap_or_else(|| Path::new("."));
-    let escaped = install_dir.to_string_lossy().replace('\'', "''");
-    let parent_pid = std::process::id();
-    let script = format!(
-        "Wait-Process -Id {parent_pid} -ErrorAction SilentlyContinue; $p=Join-Path $env:TEMP ('dirgo-update-'+[guid]::NewGuid().ToString('N')+'.ps1'); Invoke-WebRequest -UseBasicParsing -Uri '{WINDOWS_INSTALLER}' -OutFile $p; $env:DIRGO_INSTALL_DIR='{escaped}'; try {{ & $p }} finally {{ Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }}"
-    );
+    let script = windows_direct_installer_script(install_dir, std::process::id());
     let mut command = Command::new("powershell");
     command
         .args(["-NoLogo", "-NoProfile", "-Command", &script])
@@ -749,6 +745,14 @@ fn run_direct_installer(executable: &Path) -> std::io::Result<Option<std::proces
         .creation_flags(0x08000000)
         .spawn()
         .map(|_| None)
+}
+
+#[cfg(any(windows, test))]
+fn windows_direct_installer_script(install_dir: &Path, parent_pid: u32) -> String {
+    let escaped = install_dir.to_string_lossy().replace('\'', "''");
+    format!(
+        "Wait-Process -Id {parent_pid} -ErrorAction SilentlyContinue; $p=Join-Path $env:TEMP ('dirgo-update-'+[guid]::NewGuid().ToString('N')+'.ps1'); Invoke-WebRequest -UseBasicParsing -Uri '{WINDOWS_INSTALLER}' -OutFile $p; $env:DIRGO_INSTALL_DIR='{escaped}'; $env:DIRGO_SETUP='skip'; try {{ & $p }} finally {{ Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }}"
+    )
 }
 
 fn is_newer(candidate: &str, current: &str) -> bool {
@@ -867,6 +871,16 @@ mod tests {
             detect_install_source(Path::new("/home/me/.local/bin/dgo")),
             InstallSource::Direct
         );
+    }
+
+    #[test]
+    fn windows_direct_installer_script_preserves_path_and_waits_for_parent() {
+        let script = windows_direct_installer_script(Path::new("C:\\Users\\O'Brien\\Dirgo"), 42);
+        assert!(script.contains("Wait-Process -Id 42"));
+        assert!(script.contains(WINDOWS_INSTALLER));
+        assert!(script.contains("$env:DIRGO_INSTALL_DIR='C:\\Users\\O''Brien\\Dirgo'"));
+        assert!(script.contains("$env:DIRGO_SETUP='skip'"));
+        assert!(script.contains("Remove-Item -LiteralPath $p"));
     }
 
     #[test]

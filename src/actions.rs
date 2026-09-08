@@ -100,13 +100,12 @@ fn open_command() -> Option<CommandSpec> {
     let candidates: [(&str, &[&str]); 1] = [("explorer.exe", &[])];
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let candidates: [(&str, &[&str]); 1] = [("xdg-open", &[])];
-    candidates
-        .into_iter()
-        .find(|(program, _)| executable_exists(program))
-        .map(|(program, args)| CommandSpec {
-            program: program.into(),
+    candidates.into_iter().find_map(|(program, args)| {
+        resolve_executable(program).map(|program| CommandSpec {
+            program,
             args: args.iter().map(OsString::from).collect(),
         })
+    })
 }
 
 fn copy_command() -> Option<CommandSpec> {
@@ -125,13 +124,12 @@ fn copy_command() -> Option<CommandSpec> {
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let candidates: [(&str, &[&str]); 2] =
         [("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])];
-    candidates
-        .into_iter()
-        .find(|(program, _)| executable_exists(program))
-        .map(|(program, args)| CommandSpec {
-            program: program.into(),
+    candidates.into_iter().find_map(|(program, args)| {
+        resolve_executable(program).map(|program| CommandSpec {
+            program,
             args: args.iter().map(OsString::from).collect(),
         })
+    })
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -158,9 +156,9 @@ fn editor_command(config: &ActionConfig) -> Result<CommandSpec> {
         }
     }
     for candidate in ["code", "cursor", "zed"] {
-        if executable_exists(candidate) {
+        if let Some(program) = resolve_executable(candidate) {
             return Ok(CommandSpec {
-                program: candidate.into(),
+                program,
                 args: Vec::new(),
             });
         }
@@ -177,26 +175,44 @@ fn validated_editor(value: &str) -> Result<CommandSpec> {
             "actions.editor must be one executable path without arguments".into(),
         ));
     }
-    if !executable_exists(value) {
+    let Some(program) = resolve_executable(value) else {
         return Err(unavailable(
             "open an editor",
             &format!("install {value} or change actions.editor"),
         ));
-    }
+    };
     Ok(CommandSpec {
-        program: value.into(),
+        program,
         args: Vec::new(),
     })
 }
 
-fn executable_exists(program: impl AsRef<OsStr>) -> bool {
+fn resolve_executable(program: impl AsRef<OsStr>) -> Option<OsString> {
     let program = Path::new(program.as_ref());
     if program.components().count() > 1 {
-        return is_executable(program);
+        return executable_candidate(program).map(PathBuf::into_os_string);
     }
-    env::var_os("PATH").is_some_and(|path| {
-        env::split_paths(&path).any(|directory| is_executable(&directory.join(program)))
+    env::var_os("PATH").and_then(|path| {
+        env::split_paths(&path)
+            .find_map(|directory| executable_candidate(&directory.join(program)))
+            .map(|path| path.as_os_str().to_owned())
     })
+}
+
+fn executable_candidate(path: &Path) -> Option<PathBuf> {
+    if is_executable(path) {
+        return Some(path.to_owned());
+    }
+    #[cfg(windows)]
+    if path.extension().is_none() {
+        for extension in ["exe", "cmd", "bat"] {
+            let candidate = path.with_extension(extension);
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -264,5 +280,18 @@ mod tests {
         };
         let error = editor_command(&config).expect_err("arguments must be rejected");
         assert!(error.to_string().contains("without arguments"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn configured_windows_editor_resolves_command_shims() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let shim = temp.path().join("code.cmd");
+        std::fs::write(&shim, "@echo off\r\n").expect("shim");
+        let config = ActionConfig {
+            editor: temp.path().join("code").display().to_string(),
+        };
+        let command = editor_command(&config).expect("Windows command shim");
+        assert_eq!(command.program, shim.as_os_str());
     }
 }
