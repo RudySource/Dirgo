@@ -200,7 +200,7 @@ pruned to 64 projects.
 | Zsh | Full automatic live panel through `zle-line-pre-redraw`, anchored after the editable buffer with `POSTDISPLAY`; existing widgets and keymaps are preserved |
 | Fish | Built-in live autosuggestion plus its native completion pager; Dirgo enriches candidates without replacing Fish's editor |
 | Bash 4+ | Context-complete explicit list and insertion through Readline; no per-character key rebinding |
-| PowerShell 7+ | `Ctrl+F` insertion; PowerShell 7.4.x gets automatic native PSReadLine `ListView` prediction |
+| PowerShell 7+ | `Ctrl+F` insertion; PowerShell 7.4+ gets automatic native PSReadLine `ListView` prediction |
 
 WSL uses the corresponding Linux shell adapter. Windows PowerShell 5.1 and
 `cmd.exe` are not supported.

@@ -83,6 +83,35 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/windows-suggestions-smoke.ps1 -DgoBin (Resolve-Path target/release/dgo.exe)
+      - name: PowerShell native predictor version matrix
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $releases = @(
+            @{ Version = '7.4.19'; Sha256 = 'CD62AD6D8174CC6FB85B335A0058444BC934FE27C39FA97FE342134286D28AF9' },
+            @{ Version = '7.5.10'; Sha256 = '680D8CA69C5514D0BD4496AC6E94391155B4C71E97223BBDE28A0E5230C20979' },
+            @{ Version = '7.6.4'; Sha256 = '80832551C52809301E6071C8BAC977BEB5A2F1EC953EB4DB9F94DEB953333793' }
+          )
+          foreach ($release in $releases) {
+            $archive = Join-Path $env:RUNNER_TEMP "PowerShell-$($release.Version)-win-x64.zip"
+            $destination = Join-Path $env:RUNNER_TEMP "PowerShell-$($release.Version)"
+            $uri = "https://github.com/PowerShell/PowerShell/releases/download/v$($release.Version)/PowerShell-$($release.Version)-win-x64.zip"
+            Invoke-WebRequest -Uri $uri -OutFile $archive
+            $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash
+            if ($actualHash -ne $release.Sha256) {
+              throw "PowerShell $($release.Version) archive checksum mismatch"
+            }
+            Expand-Archive -LiteralPath $archive -DestinationPath $destination
+            $pwsh = Join-Path $destination 'pwsh.exe'
+            $actualVersion = & $pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+            if ($actualVersion -ne $release.Version) {
+              throw "Expected PowerShell $($release.Version), found $actualVersion"
+            }
+            & $pwsh -NoLogo -NoProfile -File ./scripts/windows-suggestions-smoke.ps1 -DgoBin (Resolve-Path target/release/dgo.exe) -RequireNativePredictor
+            if ($LASTEXITCODE -ne 0) {
+              throw "PowerShell $($release.Version) suggestions smoke failed"
+            }
+          }
       - name: Verify Linux glibc compatibility baseline
         if: runner.os == 'Linux'
         run: |

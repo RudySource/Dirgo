@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$DgoBin
+    [string]$DgoBin,
+    [switch]$RequireNativePredictor
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,10 +42,15 @@ try {
         $handler = Get-PSReadLineKeyHandler -Chord Ctrl+f
         if ($handler.Function -ne 'DirgoSuggestion') { throw 'Ctrl+f suggestion handler is missing' }
     }
+    $psReadLineVersion = (Get-Module -ListAvailable PSReadLine | Sort-Object Version -Descending | Select-Object -First 1).Version
+    if ($RequireNativePredictor -and $psReadLineVersion -lt [version]'2.2.2') {
+        throw "native predictor smoke requires PSReadLine 2.2.2+, found $psReadLineVersion"
+    }
+    $dirgoPredictorRegistered = $false
     $version = (& $DgoBin --version) -replace '^dgo\s+', ''
     $manifest = Join-Path (Split-Path -Parent $DgoBin) "DirgoPredictor/$version/DirgoPredictor.psd1"
     if ($PSVersionTable.PSVersion.Major -eq 7 -and
-        $PSVersionTable.PSVersion.Minor -eq 4 -and
+        $PSVersionTable.PSVersion -ge [version]'7.4.0' -and
         (Test-Path -LiteralPath $manifest)) {
         $predictors = [System.Management.Automation.Subsystem.SubsystemManager]::GetSubsystemInfo(
             [System.Management.Automation.Subsystem.SubsystemKind]::CommandPredictor).Implementations
@@ -72,6 +78,9 @@ try {
             }
             return $result
         }
+    }
+    if ($RequireNativePredictor -and -not $dirgoPredictorRegistered) {
+        throw "Dirgo predictor was not registered on PowerShell $($PSVersionTable.PSVersion)"
     }
 
     Set-Location -LiteralPath $root
