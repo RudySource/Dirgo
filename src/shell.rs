@@ -1325,8 +1325,13 @@ if ($suggestionsEnabled -and (Get-Module -ListAvailable PSReadLine)) {
         if ($predictorSubsystem.Implementations.Name -contains 'Dirgo' -and
             $Host.UI.SupportsVirtualTerminal) {
             $dirgoPredictorRegistered = $true
-            Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-            Set-PSReadLineOption -PredictionViewStyle ListView
+            try {
+                Set-PSReadLineOption -PredictionSource HistoryAndPlugin -ErrorAction Stop
+                Set-PSReadLineOption -PredictionViewStyle ListView -ErrorAction Stop
+            } catch {
+                # PSReadLine can reject prediction UI settings when output is redirected.
+                # The predictor remains registered and Ctrl+F remains available.
+            }
         }
     }
 
@@ -1580,6 +1585,18 @@ mod tests {
         assert!(script.contains("$PSVersionTable.PSVersion.Major -eq 7"));
         assert!(script.contains("$PSVersionTable.PSVersion -ge [version]'7.4.0'"));
         assert!(!script.contains("$PSVersionTable.PSVersion.Minor -eq 4"));
+        assert!(
+            script.contains(
+                "Set-PSReadLineOption -PredictionSource HistoryAndPlugin -ErrorAction Stop"
+            )
+        );
+        assert!(
+            script.contains("Set-PSReadLineOption -PredictionViewStyle ListView -ErrorAction Stop")
+        );
+        assert!(
+            script
+                .contains("PSReadLine can reject prediction UI settings when output is redirected")
+        );
     }
 
     #[test]
