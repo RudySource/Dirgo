@@ -28,7 +28,7 @@
     "@types/react-dom": "19.2.5",
     "eslint": "9.39.5",
     "typescript": "5.7.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "engines": {
     "node": ">=20"
